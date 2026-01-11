@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -19,6 +19,7 @@ import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
 import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
+import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.TruffleFile;
 import com.oracle.truffle.api.TruffleLanguage.ContextReference;
 import com.oracle.truffle.api.TruffleLanguage.ParsingRequest;
@@ -141,8 +142,12 @@ public final class SqueakImageContext {
     public final ClassObject metaClass = new ClassObject(this);
     public final ClassObject nilClass = new ClassObject(this);
 
-    public final CompiledCodeObject dummyMethod = new CompiledCodeObject(null, CompiledCodeHeaderUtils.makeHeader(true, 1, 0, 0, false, true), ArrayUtils.EMPTY_ARRAY, compiledMethodClass);
-    public final VirtualFrame externalSenderFrame = FrameAccess.newDummyFrame(dummyMethod);
+    public final CompiledCodeObject dummyMethod = new CompiledCodeObject(
+                    /* Object>>#yourself with large frame and without literals */
+                    new byte[]{(byte) 139, 0, 1, (byte) 192, (byte) 169, (byte) 142, (byte) 254},
+                    CompiledCodeHeaderUtils.makeHeaderWord(true, 0, 0, 0, true, true),
+                    ArrayUtils.EMPTY_ARRAY, compiledMethodClass);
+    public final VirtualFrame externalSenderFrame = Truffle.getRuntime().createVirtualFrame(FrameAccess.newWith(NilObject.SINGLETON, null, NilObject.SINGLETON), dummyMethod.getFrameDescriptor());
 
     /* Method Cache */
     private static final int METHOD_CACHE_SIZE = 2 << 12;
@@ -367,7 +372,7 @@ public final class SqueakImageContext {
         final PointersObject methodNode;
         try {
             methodNode = (PointersObject) parserSharedInstance.send(this, "parse:class:noPattern:notifying:ifFail:",
-                            smalltalkSource, nilClass, BooleanObject.TRUE, requestorSharedInstanceOrNil, new BlockClosureObject(blockClosureClass, 0));
+                            smalltalkSource, nilClass, BooleanObject.TRUE, requestorSharedInstanceOrNil, new BlockClosureObject(true, 0));
         } catch (final ProcessSwitch e) {
             /*
              * A ProcessSwitch exception is thrown in case of a syntax error to open the
@@ -392,23 +397,15 @@ public final class SqueakImageContext {
      */
 
     public boolean enteringContextExceedsDepth() {
-        if (maxContextStackDepth == 0) {
-            return false;
-        } else {
-            return ++currentContextStackDepth > maxContextStackDepth;
-        }
+        return ++currentContextStackDepth > maxContextStackDepth;
     }
 
     public void exitingContext() {
-        if (maxContextStackDepth != 0) {
-            --currentContextStackDepth;
-        }
+        --currentContextStackDepth;
     }
 
     public void resetContextStackDepth() {
-        if (maxContextStackDepth != 0) {
-            currentContextStackDepth = 0;
-        }
+        currentContextStackDepth = 0;
     }
 
     /*
@@ -811,7 +808,7 @@ public final class SqueakImageContext {
     }
 
     public PointersObject getActiveProcessSlow() {
-        return AbstractPointersObjectReadNode.getUncached().executePointers(null, getScheduler(), PROCESS_SCHEDULER.ACTIVE_PROCESS);
+        return AbstractPointersObjectReadNode.getUncached().executePointers(getScheduler(), PROCESS_SCHEDULER.ACTIVE_PROCESS);
     }
 
     public Object getSpecialObject(final int index) {
@@ -969,6 +966,8 @@ public final class SqueakImageContext {
         methodCacheRandomish = methodCacheRandomish + 1 & 3;
         final int selectorHash = System.identityHashCode(selector);
         int firstProbe = (System.identityHashCode(classObject) ^ selectorHash) & METHOD_CACHE_MASK;
+        final int stride = (selectorHash << 1) | 1;
+
         int probe = firstProbe;
         for (int i = 0; i < METHOD_CACHE_REPROBES; i++) {
             final MethodCacheEntry entry = methodCache[probe];
@@ -978,7 +977,7 @@ public final class SqueakImageContext {
             if (i == methodCacheRandomish) {
                 firstProbe = probe;
             }
-            probe = probe + selectorHash & METHOD_CACHE_MASK;
+            probe = probe + stride & METHOD_CACHE_MASK;
         }
         return methodCache[firstProbe].reuseFor(classObject, selector);
     }
@@ -1122,7 +1121,7 @@ public final class SqueakImageContext {
         return fractionClass;
     }
 
-    public PointersObject asFraction(final long numerator, final long denominator, final AbstractPointersObjectWriteNode writeNode, final Node inlineTarget) {
+    public PointersObject asFraction(final long numerator, final long denominator, final AbstractPointersObjectWriteNode writeNode) {
         final long actualNumerator;
         final long actualDenominator;
         if (denominator < 0) { // "keep sign in numerator"
@@ -1140,16 +1139,16 @@ public final class SqueakImageContext {
         }
         final long gcd = Math.abs(m);
         // Instantiate reduced fraction
-        final PointersObject fraction = new PointersObject(getFractionClass(), fractionClass.getLayout());
-        writeNode.execute(inlineTarget, fraction, FRACTION.NUMERATOR, actualNumerator / gcd);
-        writeNode.execute(inlineTarget, fraction, FRACTION.DENOMINATOR, actualDenominator / gcd);
+        final PointersObject fraction = new PointersObject(getFractionClass());
+        writeNode.execute(fraction, FRACTION.NUMERATOR, actualNumerator / gcd);
+        writeNode.execute(fraction, FRACTION.DENOMINATOR, actualDenominator / gcd);
         return fraction;
     }
 
     public static double fromFraction(final PointersObject fraction, final AbstractPointersObjectReadNode readNode, final Node inlineTarget) {
         assert SqueakGuards.isFraction(fraction, inlineTarget);
-        final long numerator = readNode.executeLong(inlineTarget, fraction, ObjectLayouts.FRACTION.NUMERATOR);
-        final double denominator = readNode.executeLong(inlineTarget, fraction, ObjectLayouts.FRACTION.DENOMINATOR);
+        final long numerator = readNode.executeLong(fraction, ObjectLayouts.FRACTION.NUMERATOR);
+        final double denominator = readNode.executeLong(fraction, ObjectLayouts.FRACTION.DENOMINATOR);
         return numerator / denominator;
     }
 
@@ -1178,10 +1177,10 @@ public final class SqueakImageContext {
         return wideStringProfile.profile(node, NativeObject.needsWideString(value)) ? asWideString(value) : asByteString(value);
     }
 
-    public PointersObject asPoint(final AbstractPointersObjectWriteNode writeNode, final Node inlineTarget, final Object xPos, final Object yPos) {
-        final PointersObject point = new PointersObject(pointClass, null);
-        writeNode.execute(inlineTarget, point, POINT.X, xPos);
-        writeNode.execute(inlineTarget, point, POINT.Y, yPos);
+    public PointersObject asPoint(final AbstractPointersObjectWriteNode writeNode, final Object xPos, final Object yPos) {
+        final PointersObject point = new PointersObject(pointClass);
+        writeNode.execute(point, POINT.X, xPos);
+        writeNode.execute(point, POINT.Y, yPos);
         return point;
     }
 
@@ -1189,12 +1188,12 @@ public final class SqueakImageContext {
         return ArrayObject.createWithStorage(arrayClass, ArrayUtils.EMPTY_ARRAY);
     }
 
-    public PointersObject newMessage(final AbstractPointersObjectWriteNode writeNode, final Node inlineTarget, final NativeObject selector, final ClassObject lookupClass, final Object[] arguments) {
-        final PointersObject message = new PointersObject(messageClass, null);
-        writeNode.execute(inlineTarget, message, MESSAGE.SELECTOR, selector);
-        writeNode.execute(inlineTarget, message, MESSAGE.ARGUMENTS, asArrayOfObjects(arguments));
+    public PointersObject newMessage(final AbstractPointersObjectWriteNode writeNode, final NativeObject selector, final ClassObject lookupClass, final Object[] arguments) {
+        final PointersObject message = new PointersObject(messageClass);
+        writeNode.execute(message, MESSAGE.SELECTOR, selector);
+        writeNode.execute(message, MESSAGE.ARGUMENTS, asArrayOfObjects(arguments));
         assert message.instsize() > MESSAGE.LOOKUP_CLASS : "Early versions do not have lookupClass";
-        writeNode.execute(inlineTarget, message, MESSAGE.LOOKUP_CLASS, lookupClass);
+        writeNode.execute(message, MESSAGE.LOOKUP_CLASS, lookupClass);
         return message;
     }
 

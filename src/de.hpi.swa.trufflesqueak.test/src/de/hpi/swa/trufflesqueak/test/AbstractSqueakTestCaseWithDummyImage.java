@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -41,7 +41,7 @@ public abstract class AbstractSqueakTestCaseWithDummyImage extends AbstractSquea
 
         final ClassObject bindingClass = setupMeta(new ClassObject(image), null, 1L, "Binding");
         final ClassObject classBindingClass = setupMeta(new ClassObject(image), bindingClass, 2L, "ClassBinding");
-        nilClassBinding = new PointersObject(classBindingClass, classBindingClass.getLayout());
+        nilClassBinding = new PointersObject(classBindingClass);
         nilClassBinding.instVarAtPut0Slow(0, asByteSymbol("UndefinedObject"));
         nilClassBinding.instVarAtPut0Slow(1, image.nilClass);
 

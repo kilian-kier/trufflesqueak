@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2025 Oracle and/or its affiliates
+ * Copyright (c) 2025-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2025-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -14,5 +14,10 @@ public abstract class AbstractDispatchNode extends AbstractNode {
 
     AbstractDispatchNode(final NativeObject selector) {
         this.selector = selector;
+    }
+
+    @Override
+    public final String toString() {
+        return "send: " + selector.toString();
     }
 }

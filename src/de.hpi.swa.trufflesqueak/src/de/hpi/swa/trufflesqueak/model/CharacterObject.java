@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -14,9 +14,9 @@ import de.hpi.swa.trufflesqueak.exceptions.RespecializeException;
 
 @ValueType
 public final class CharacterObject extends AbstractSqueakObject {
-    private final long value;
+    private final int value;
 
-    private CharacterObject(final long value) {
+    private CharacterObject(final int value) {
         assert value > Character.MAX_VALUE : "CharacterObject should only be used for non-primitive chars.";
         this.value = value;
     }
@@ -48,14 +48,6 @@ public final class CharacterObject extends AbstractSqueakObject {
         }
     }
 
-    public static Object valueOf(final long value) {
-        if (value <= Character.MAX_VALUE) {
-            return (char) value;
-        } else {
-            return new CharacterObject(value);
-        }
-    }
-
     public static char valueExactOf(final long value) throws RespecializeException {
         if (value <= Character.MAX_VALUE) {
             return (char) value;
@@ -64,7 +56,7 @@ public final class CharacterObject extends AbstractSqueakObject {
         }
     }
 
-    public static Object valueOf(final long value, final InlinedConditionProfile isImmediateProfile, final Node node) {
+    public static Object valueOf(final int value, final InlinedConditionProfile isImmediateProfile, final Node node) {
         if (isImmediateProfile.profile(node, value <= Character.MAX_VALUE)) {
             return (char) value;
         } else {
@@ -79,9 +71,5 @@ public final class CharacterObject extends AbstractSqueakObject {
 
     public long getValue() {
         return value;
-    }
-
-    public CharacterObject shallowCopy() {
-        return new CharacterObject(value);
     }
 }

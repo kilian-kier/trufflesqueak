@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2025-2025 Oracle and/or its affiliates
+ * Copyright (c) 2025-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2025-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -28,7 +28,7 @@ public final class PushToStackNode extends AbstractNode {
         if (stackPointer == -1) {
             CompilerDirectives.transferToInterpreterAndInvalidate();
             stackPointer = FrameAccess.getStackPointer(frame) + 1;
-            assert stackPointer <= CONTEXT.MAX_STACK_SIZE : "Bad stack pointer";
+            assert stackPointer <= FrameAccess.getCodeObject(frame).getMaxStackSize() : "Bad stack pointer";
             stackSlot = FrameAccess.toStackSlotIndex(frame, stackPointer - 1);
         }
         FrameAccess.setStackPointer(frame, stackPointer);

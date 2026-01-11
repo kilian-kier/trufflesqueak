@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -103,7 +103,7 @@ public abstract class SqueakObjectNewNode extends AbstractNode {
     @Specialization(guards = {"instantiatesPointersObject(getContext(), classObject)"}, replaces = "doPointersCached")
     protected static final PointersObject doPointersUncached(final ClassObject classObject, final int extraSize) {
         assert extraSize == 0;
-        return new PointersObject(classObject, null);
+        return new PointersObject(classObject);
     }
 
     @Specialization(guards = {"classObject.getLayout() == cachedLayout"}, assumptions = "cachedLayout.getValidAssumption()", limit = "NEW_CACHE_SIZE")
@@ -123,7 +123,7 @@ public abstract class SqueakObjectNewNode extends AbstractNode {
 
     @Specialization(guards = {"instantiatesVariablePointersObject(getContext(), classObject)"}, replaces = "doVariablePointersCached")
     protected static final VariablePointersObject doVariablePointersUncached(final ClassObject classObject, final int extraSize) {
-        return new VariablePointersObject(classObject, null, extraSize);
+        return new VariablePointersObject(classObject, classObject.getLayout(), extraSize);
     }
 
     @Specialization(guards = {"classObject.getLayout() == cachedLayout"}, assumptions = "cachedLayout.getValidAssumption()", limit = "NEW_CACHE_SIZE")
@@ -143,7 +143,7 @@ public abstract class SqueakObjectNewNode extends AbstractNode {
 
     @Specialization(guards = "instantiatesWeakVariablePointersObject(classObject)", replaces = "doWeakPointersCached")
     protected static final WeakVariablePointersObject doWeakPointersUncached(final ClassObject classObject, final int extraSize) {
-        return new WeakVariablePointersObject(classObject, null, extraSize);
+        return new WeakVariablePointersObject(classObject, classObject.getLayout(), extraSize);
     }
 
     @Specialization(guards = "classObject.isZeroSized()")
@@ -151,10 +151,18 @@ public abstract class SqueakObjectNewNode extends AbstractNode {
         return new EmptyObject(classObject);
     }
 
-    @Specialization(guards = {"classObject.isIndexableWithInstVars()", "image.isBlockClosureClass(classObject) || image.isFullBlockClosureClass(classObject)"})
+    @SuppressWarnings("unused")
+    @Specialization(guards = {"classObject.isIndexableWithInstVars()", "image.isFullBlockClosureClass(classObject)"})
+    protected static final BlockClosureObject doFullBlockClosure(final ClassObject classObject, final int extraSize,
+                    @Bind final SqueakImageContext image) {
+        return new BlockClosureObject(false, extraSize);
+    }
+
+    @SuppressWarnings("unused")
+    @Specialization(guards = {"classObject.isIndexableWithInstVars()", "image.isBlockClosureClass(classObject)"})
     protected static final BlockClosureObject doBlockClosure(final ClassObject classObject, final int extraSize,
-                    @SuppressWarnings("unused") @Bind final SqueakImageContext image) {
-        return new BlockClosureObject(classObject, extraSize);
+                    @Bind final SqueakImageContext image) {
+        return new BlockClosureObject(true, extraSize);
     }
 
     @Specialization(guards = {"classObject.isIndexableWithInstVars()", "getContext().isMethodContextClass(classObject)"})
@@ -193,7 +201,7 @@ public abstract class SqueakObjectNewNode extends AbstractNode {
     protected static final EphemeronObject doEphemeronUncached(final ClassObject classObject, final int extraSize,
                     @Bind final SqueakImageContext image) {
         assert extraSize == 0;
-        return new EphemeronObject(image, classObject, null);
+        return new EphemeronObject(image, classObject, classObject.getLayout());
     }
 
     @Specialization(guards = {"classObject.isWords()", "getContext().isFloatClass(classObject)"})

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -18,6 +18,7 @@ import com.oracle.truffle.api.profiles.InlinedConditionProfile;
 import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObject;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObjectWithClassAndHash;
+import de.hpi.swa.trufflesqueak.model.BlockClosureObject;
 import de.hpi.swa.trufflesqueak.model.CharacterObject;
 import de.hpi.swa.trufflesqueak.model.ClassObject;
 import de.hpi.swa.trufflesqueak.model.ContextObject;
@@ -83,6 +84,16 @@ public abstract class SqueakObjectClassNode extends AbstractNode {
     @Specialization
     protected final ClassObject doContext(@SuppressWarnings("unused") final ContextObject value) {
         return getContext().methodContextClass;
+    }
+
+    @Specialization(guards = "value.isAFullBlockClosure()")
+    protected final ClassObject doFullBlockClosure(@SuppressWarnings("unused") final BlockClosureObject value) {
+        return getContext().getFullBlockClosureClass();
+    }
+
+    @Specialization(guards = "value.isABlockClosure()")
+    protected final ClassObject doBlockClosure(@SuppressWarnings("unused") final BlockClosureObject value) {
+        return getContext().blockClosureClass;
     }
 
     @Specialization

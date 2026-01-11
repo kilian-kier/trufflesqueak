@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -388,7 +388,7 @@ public final class StoragePrimitives extends AbstractPrimitiveFactoryHolder {
         protected static final Object doLong(final long receiver,
                         @Bind final Node node,
                         @Cached final InlinedConditionProfile isImmediateProfile) {
-            return CharacterObject.valueOf(receiver, isImmediateProfile, node);
+            return CharacterObject.valueOf((int) receiver, isImmediateProfile, node);
         }
     }
 
@@ -405,7 +405,7 @@ public final class StoragePrimitives extends AbstractPrimitiveFactoryHolder {
         protected static final Object doClassLong(@SuppressWarnings("unused") final Object receiver, final long target,
                         @Bind final Node node,
                         @Cached final InlinedConditionProfile isImmediateProfile) {
-            return CharacterObject.valueOf(target, isImmediateProfile, node);
+            return CharacterObject.valueOf((int) target, isImmediateProfile, node);
         }
     }
 

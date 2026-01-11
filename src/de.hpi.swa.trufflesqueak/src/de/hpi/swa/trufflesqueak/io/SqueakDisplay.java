@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -150,12 +150,12 @@ public final class SqueakDisplay {
 
         private void setSqueakDisplay(final PointersObject squeakDisplay) {
             final AbstractPointersObjectReadNode readNode = AbstractPointersObjectReadNode.getUncached();
-            final NativeObject bitmap = readNode.executeNative(null, squeakDisplay, FORM.BITS);
+            final NativeObject bitmap = readNode.executeNative(squeakDisplay, FORM.BITS);
             if (!bitmap.isIntType()) {
                 throw SqueakException.create("Display bitmap expected to be a words object");
             }
-            final int width = readNode.executeInt(null, squeakDisplay, FORM.WIDTH);
-            final int height = readNode.executeInt(null, squeakDisplay, FORM.HEIGHT);
+            final int width = readNode.executeInt(squeakDisplay, FORM.WIDTH);
+            final int height = readNode.executeInt(squeakDisplay, FORM.HEIGHT);
             assert (long) squeakDisplay.instVarAt0Slow(FORM.DEPTH) == 32 : "Unsupported display depth";
             if (width > 0 && height > 0) {
                 bufferedImage = MiscUtils.new32BitBufferedImage(bitmap.getIntStorage(), width, height, false);

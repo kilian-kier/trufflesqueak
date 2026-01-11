@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -47,7 +47,7 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
     public ContextObject(final int size) {
         super();
         senderOrFrameOrSize = size;
-        assert size == CONTEXT.SMALL_FRAMESIZE || size == CONTEXT.LARGE_FRAMESIZE;
+        assert size == CONTEXT.SMALL_FRAMESIZE || size == CONTEXT.LARGE_FRAMESIZE || size == CONTEXT.HUGE_FRAMESIZE;
     }
 
     public ContextObject(final VirtualFrame frame) {
@@ -96,8 +96,8 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
             if (code.isCompiledMethod()) {
                 closure.fillin(chunk.getChunk(CONTEXT.CLOSURE_OR_NIL));
                 methodOrBlock = closure.getCompiledBlock();
-            } else { // FullBlockClosure
-                assert !closure.isABlockClosure(chunk.getImage());
+            } else {
+                assert closure.isAFullBlockClosure();
                 methodOrBlock = code;
             }
         }
@@ -174,7 +174,7 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
         final MaterializedFrame truffleFrame = Truffle.getRuntime().createMaterializedFrame(dummyArguments, dummyMethod.getFrameDescriptor());
         FrameAccess.setContext(truffleFrame, context);
         FrameAccess.setInstructionPointer(truffleFrame, 0);
-        FrameAccess.setStackPointer(truffleFrame, 1);
+        FrameAccess.setStackPointer(truffleFrame, 0);
         return truffleFrame;
     }
 
@@ -199,10 +199,6 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
         senderOrFrameOrSize = FrameAccess.findFrameForContext(this);
         setMarkedCodeFlags();
         getCodeObject().getDoesNotNeedThisContextAssumption().invalidate();
-    }
-
-    public AbstractSqueakObject getMaterializedSender() {
-        return FrameAccess.getSender(getTruffleFrame());
     }
 
     /* Context has modified sender flag */
@@ -458,7 +454,7 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
     public void push(final Object value) {
         assert value != null : "Unexpected `null` value";
         final int currentStackPointer = getStackPointer();
-        assert currentStackPointer < CONTEXT.MAX_STACK_SIZE;
+        assert currentStackPointer <= getCodeObject().getMaxStackSize() : "curSP " + currentStackPointer + " > maxStackSize " + getCodeObject().getMaxStackSize();
         setStackPointer(currentStackPointer + 1);
         atTempPut(currentStackPointer, value);
     }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -44,7 +44,7 @@ public final class StartContextRootNode extends AbstractRootNode {
 
     public StartContextRootNode(final SqueakImageContext image, final CompiledCodeObject code) {
         super(image, code);
-        initialPC = code.isShadowBlock() ? code.getOuterMethodStartPCZeroBased() : 0;
+        initialPC = code.getStartPCZeroBased();
         interruptHandlerNode = CheckForInterruptsQuickNode.createForSend(code);
     }
 
@@ -97,7 +97,7 @@ public final class StartContextRootNode extends AbstractRootNode {
                 assert numArgs == code.getNumArgs();
             } else {
                 final BlockClosureObject closure = FrameAccess.getClosure(frame);
-                initialSP = closure.getNumTemps();
+                initialSP = closure.getInitialSP();
                 assert numArgs == closure.getNumArgs() + closure.getNumCopied();
             }
             numTempSlots = MiscUtils.toByteExact(initialSP - numArgs);

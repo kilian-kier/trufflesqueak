@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -169,7 +169,7 @@ public final class ArrayStreamPrimitives extends AbstractPrimitiveFactoryHolder 
         protected static final Object doNativeObjectInts(final NativeObject obj, final long index,
                         @Bind final Node node,
                         @Cached final InlinedConditionProfile isImmediateProfile) {
-            return CharacterObject.valueOf(Integer.toUnsignedLong(obj.getInt(index - 1)), isImmediateProfile, node);
+            return CharacterObject.valueOf(obj.getInt(index - 1), isImmediateProfile, node);
         }
     }
 

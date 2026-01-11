@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -42,25 +42,25 @@ public abstract class AbstractSqueakTestCase {
         return new CompiledCodeObject(bytes, header, literals, image.compiledMethodClass);
     }
 
-    protected static final CompiledCodeObject makeMethod(final int header, final Object[] literals, final int... intbytes) {
+    protected static final CompiledCodeObject makeMethod(final long header, final Object[] literals, final int... intbytes) {
         final byte[] bytes = new byte[intbytes.length + 1];
         for (int i = 0; i < intbytes.length; i++) {
             bytes[i] = (byte) intbytes[i];
         }
         bytes[intbytes.length] = 0; // Set flagByte = 0 for no method trailer.
-        final int numLiterals = header & 0x7FFF;
+        final int numLiterals = (int) header & 0x7FFF;
         final Object[] allLiterals = Arrays.copyOf(literals, numLiterals);
         allLiterals[numLiterals - 2] = image.asByteString("DoIt"); // compiledInSelector
         allLiterals[numLiterals - 1] = nilClassBinding; // methodClassAssociation
         return makeMethod(bytes, header, allLiterals);
     }
 
-    protected static final int makeHeader(final int numArgs, final int numTemps, final int numLiterals, final boolean hasPrimitive, final boolean needsLargeFrame) { // shortcut
-        return CompiledCodeObject.CompiledCodeHeaderUtils.makeHeader(true, numArgs, numTemps, numLiterals, hasPrimitive, needsLargeFrame);
+    protected static final long makeHeaderWord(final int numArgs, final int numTemps, final int numLiterals, final boolean hasPrimitive, final boolean needsLargeFrame) { // shortcut
+        return CompiledCodeObject.CompiledCodeHeaderUtils.makeHeaderWord(true, numArgs, numTemps, numLiterals, hasPrimitive, needsLargeFrame);
     }
 
     private static CompiledCodeObject makeMethod(final int... intbytes) {
-        return makeMethod(makeHeader(0, 5, 14, false, true), new Object[0], intbytes);
+        return makeMethod(makeHeaderWord(0, 5, 14, false, true), new Object[0], intbytes);
     }
 
     protected static final Object runMethod(final CompiledCodeObject code, final Object receiver, final Object... arguments) {

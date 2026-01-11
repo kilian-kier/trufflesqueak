@@ -1,10 +1,12 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
 package de.hpi.swa.trufflesqueak.model;
+
+import static de.hpi.swa.trufflesqueak.nodes.interpreter.AbstractDecoder.trailerPosition;
 
 import java.util.Arrays;
 
@@ -20,7 +22,6 @@ import com.oracle.truffle.api.Truffle;
 import com.oracle.truffle.api.dsl.Idempotent;
 import com.oracle.truffle.api.dsl.NonIdempotent;
 import com.oracle.truffle.api.frame.FrameDescriptor;
-import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.utilities.CyclicAssumption;
 
@@ -38,6 +39,7 @@ import de.hpi.swa.trufflesqueak.nodes.accessing.AbstractPointersObjectNodes.Abst
 import de.hpi.swa.trufflesqueak.nodes.accessing.AbstractPointersObjectNodes.AbstractPointersObjectWriteNode;
 import de.hpi.swa.trufflesqueak.nodes.dispatch.DispatchSelectorNaryNode.DispatchPrimitiveNode;
 import de.hpi.swa.trufflesqueak.nodes.interpreter.AbstractDecoder;
+import de.hpi.swa.trufflesqueak.nodes.interpreter.AbstractDecoder.ShadowBlockParams;
 import de.hpi.swa.trufflesqueak.nodes.interpreter.DecoderSistaV1;
 import de.hpi.swa.trufflesqueak.nodes.interpreter.DecoderV3PlusClosures;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode;
@@ -57,7 +59,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     private static final DispatchPrimitiveNode UNINITIALIZED_PRIMITIVE_NODE = DispatchPrimitiveNode.create(new PrimNoopNode(), 0);
 
     // header info and data
-    @CompilationFinal private int header;
+    @CompilationFinal private long internalHeader;
     /*
      * TODO: literals and bytes can change (and probably more?) and should not be @CompilationFinal.
      * Literals are cached in the AST and bytes are represented by nodes, so this should not affect
@@ -78,16 +80,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     static final class ExecutionData {
         private FrameDescriptor frameDescriptor;
 
-        /*
-         * With FullBlockClosure support, CompiledMethods store CompiledBlocks in their literals and
-         * CompiledBlocks their outer method in their last literal. For traditional BlockClosures,
-         * we need to do something similar, but with CompiledMethods only (CompiledBlocks are not
-         * used then). The next two fields are used to store "shadow blocks", which are copies of
-         * the outer method with a new call target, and the outer method to be used for closure
-         * activations.
-         */
-        private CompiledCodeObject outerMethod;
-        private int outerMethodStartPC;
+        private ShadowBlockMetadata shadowBlockMetadata;
 
         private Source source;
 
@@ -97,18 +90,67 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
         private RootCallTarget resumptionCallTarget;
     }
 
+    /**
+     * With FullBlockClosure support, CompiledMethods store CompiledBlocks in their literals and
+     * CompiledBlocks their outer method in their last literal. For traditional BlockClosures, we
+     * need to do something similar, but with CompiledMethods only (CompiledBlocks are not used
+     * then). This class stores data for "shadow blocks", which are copies of the outer method with
+     * a new call target, and the outer method to be used for closure activations.
+     */
+    static final class ShadowBlockMetadata {
+        private final CompiledCodeObject outerMethod;
+        private int outerMethodStartPC;
+
+        private final ShadowBlockParams params;
+
+        private ShadowBlockMetadata(final CompiledCodeObject outerCode, final int startPC) {
+            outerMethod = outerCode.getOuterMethod();
+            assert outerMethod.isCompiledMethod();
+            outerMethodStartPC = startPC;
+            params = outerMethod.getDecoder().decodeShadowBlock(outerMethod, startPC - outerMethod.getInitialPC());
+        }
+
+        private ShadowBlockMetadata(final CompiledCodeObject outerCode, final int startPC, final int numArgs, final int numCopied, final int blockSize) {
+            outerMethod = outerCode.getOuterMethod();
+            assert outerMethod.isCompiledMethod();
+            outerMethodStartPC = startPC;
+            params = new ShadowBlockParams(numArgs, numCopied, blockSize);
+        }
+
+        public int getOuterMethodStartPC() {
+            return outerMethodStartPC;
+        }
+
+        public void setOuterMethodStartPC(final int pc) {
+            outerMethodStartPC = pc;
+            assert outerMethodStartPC > outerMethod.getInitialPC();
+        }
+
+        public int getOuterMethodStartPCZeroBased() {
+            return outerMethodStartPC - outerMethod.getInitialPC();
+        }
+
+        public int getOuterMethodMaxPCZeroBased() {
+            return getOuterMethodStartPCZeroBased() + params.blockSize();
+        }
+
+        public int getInitialSP() {
+            return params.numArgs() + params.numCopied();
+        }
+    }
+
     public CompiledCodeObject(final SqueakImageChunk chunk) {
         super(chunk);
         // header is a tagged small integer
         final long headerWord = (chunk.getWord(0) >> SqueakImageConstants.NUM_TAG_BITS);
-        header = CompiledCodeHeaderUtils.toInt(headerWord);
+        internalHeader = CompiledCodeHeaderUtils.fromSmallIntegerValue(headerWord);
         literals = chunk.getPointers(1, getNumHeaderAndLiterals());
         bytes = Arrays.copyOfRange(chunk.getBytes(), getBytecodeOffset(), chunk.getBytes().length);
     }
 
-    public CompiledCodeObject(final byte[] bytes, final long header, final Object[] literals, final ClassObject classObject) {
+    public CompiledCodeObject(final byte[] bytes, final long headerWord, final Object[] literals, final ClassObject classObject) {
         super(classObject);
-        this.header = CompiledCodeHeaderUtils.toInt(header);
+        this.internalHeader = CompiledCodeHeaderUtils.fromSmallIntegerValue(headerWord);
         this.literals = literals;
         this.bytes = bytes;
     }
@@ -118,26 +160,21 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
         if (original.hasExecutionData()) {
             getExecutionData().frameDescriptor = original.executionData.frameDescriptor;
         }
-        setLiteralsAndBytes(original.header, original.literals.clone(), original.bytes.clone());
+        setLiteralsAndBytes(original.internalHeader, original.literals.clone(), original.bytes.clone());
         primitiveNodeOrNull = original.primitiveNodeOrNull;
     }
 
-    private CompiledCodeObject(final CompiledCodeObject outerCode, final int startPC) {
+    private CompiledCodeObject(final CompiledCodeObject outerCode, final ShadowBlockMetadata shadowBlockMetadata) {
         super(outerCode);
-
-        // Find outer method
-        CompiledCodeObject currentOuterCode = outerCode;
-        while (currentOuterCode.getExecutionData().outerMethod != null) {
-            currentOuterCode = currentOuterCode.executionData.outerMethod;
-        }
-        assert currentOuterCode.isCompiledMethod();
-        getExecutionData().outerMethod = currentOuterCode;
-        getExecutionData().outerMethodStartPC = startPC;
+        CompilerAsserts.neverPartOfCompilation();
 
         // header info and data
-        header = outerCode.header;
+        internalHeader = outerCode.internalHeader;
         literals = outerCode.literals;
         bytes = outerCode.bytes;
+
+        // store outer method and startPC
+        getExecutionData().shadowBlockMetadata = shadowBlockMetadata;
     }
 
     private CompiledCodeObject(final int size, final ClassObject classObject) {
@@ -160,38 +197,47 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
         return executionData;
     }
 
-    /**
-     * A shadow block works similar to a CompiledBlock (e.g., has an outerCode reference) and is
-     * used when activating a traditional BlockClosure to ensure these activations use their own
-     * call target. This is not needed for FullBlockClosures because they have their own
-     * CompiledBlock instance.
-     */
     @TruffleBoundary
     public CompiledCodeObject createShadowBlock(final int startPC) {
-        return new CompiledCodeObject(this, startPC);
+        return new CompiledCodeObject(this, new ShadowBlockMetadata(this, startPC));
+    }
+
+    public CompiledCodeObject createShadowBlock(final int startPC, final int numArgs, final int numCopied, final int blockSize) {
+        return new CompiledCodeObject(this, new ShadowBlockMetadata(this, startPC, numArgs, numCopied, blockSize));
     }
 
     public boolean isShadowBlock() {
-        return hasExecutionData() && executionData.outerMethod != null;
+        return hasExecutionData() && executionData.shadowBlockMetadata != null;
+    }
+
+    private ShadowBlockMetadata getShadowBlockMetadata() {
+        assert isShadowBlock();
+        return executionData.shadowBlockMetadata;
+    }
+
+    public CompiledCodeObject getOuterMethod() {
+        if (isShadowBlock()) {
+            return getShadowBlockMetadata().outerMethod;
+        } else {
+            return this;
+        }
     }
 
     public int getOuterMethodStartPC() {
-        assert isShadowBlock();
-        return executionData.outerMethodStartPC;
+        return getShadowBlockMetadata().getOuterMethodStartPC();
     }
 
     public void setOuterMethodStartPC(final int pc) {
         assert isShadowBlock();
-        executionData.outerMethodStartPC = pc;
-        assert executionData.outerMethodStartPC > executionData.outerMethod.getInitialPC();
+        getShadowBlockMetadata().setOuterMethodStartPC(pc);
     }
 
-    public int getOuterMethodStartPCZeroBased() {
-        return getOuterMethodStartPC() - executionData.outerMethod.getInitialPC();
+    public int getShadowBlockNumArgs() {
+        return getShadowBlockMetadata().params.numArgs();
     }
 
-    private void setLiteralsAndBytes(final int header, final Object[] literals, final byte[] bytes) {
-        this.header = header;
+    private void setLiteralsAndBytes(final long internalHeader, final Object[] literals, final byte[] bytes) {
+        this.internalHeader = internalHeader;
         this.literals = literals;
         this.bytes = bytes;
         invalidateCallTargetStable("new literals and bytes");
@@ -324,33 +370,24 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     public FrameDescriptor getFrameDescriptor() {
         CompilerAsserts.neverPartOfCompilation();
         if (getExecutionData().frameDescriptor == null) {
-            final CompiledCodeObject exposedMethod;
-            final int maxNumStackSlots;
-            if (isShadowBlock()) {
-                /* Never let shadow blocks escape, use their outer method instead. */
-                exposedMethod = executionData.outerMethod;
-                /* TODO: determine max number of stack slots instead of context size. */
-                maxNumStackSlots = getSqueakContextSize();
-            } else {
-                exposedMethod = this;
-                maxNumStackSlots = getMaxNumStackSlots();
-            }
-            executionData.frameDescriptor = FrameAccess.newFrameDescriptor(exposedMethod, maxNumStackSlots);
+            /* Never let shadow blocks escape, use their outer method instead. */
+            final CompiledCodeObject exposedMethod = isShadowBlock() ? executionData.shadowBlockMetadata.outerMethod : this;
+            executionData.frameDescriptor = FrameAccess.newFrameDescriptor(exposedMethod, getMaxNumStackSlots());
         }
         return executionData.frameDescriptor;
     }
 
     @Idempotent
     public int getNumArgs() {
-        return CompiledCodeHeaderUtils.getNumArguments(header);
+        return CompiledCodeHeaderUtils.getNumArguments(internalHeader);
     }
 
     public int getNumTemps() {
-        return CompiledCodeHeaderUtils.getNumTemps(header);
+        return CompiledCodeHeaderUtils.getNumTemps(internalHeader);
     }
 
     public int getNumLiterals() {
-        return CompiledCodeHeaderUtils.getNumLiterals(header);
+        return CompiledCodeHeaderUtils.getNumLiterals(internalHeader);
     }
 
     public int getNumHeaderAndLiterals() {
@@ -362,20 +399,36 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     }
 
     public int getSqueakContextSize() {
-        return CompiledCodeHeaderUtils.getNeedsLargeFrame(header) ? CONTEXT.LARGE_FRAMESIZE : CONTEXT.SMALL_FRAMESIZE;
+        return CompiledCodeHeaderUtils.getSqueakContextSize(internalHeader);
+    }
+
+    public int getMaxStackSize() {
+        return getSqueakContextSize();
+    }
+
+    public int getStartPCZeroBased() {
+        return isShadowBlock() ? getShadowBlockMetadata().getOuterMethodStartPCZeroBased() : 0;
+    }
+
+    public int getMaxPCZeroBased() {
+        return isShadowBlock() ? getShadowBlockMetadata().getOuterMethodMaxPCZeroBased() : trailerPosition(this);
+    }
+
+    public int getInitialSP() {
+        return isShadowBlock() ? getShadowBlockMetadata().getInitialSP() : getNumTemps();
     }
 
     public int getMaxNumStackSlots() {
-        return getDecoder().determineMaxNumStackSlots(this);
+        return getDecoder().determineMaxNumStackSlots(this, getStartPCZeroBased(), getMaxPCZeroBased(), getInitialSP());
     }
 
-    public boolean getSignFlag() {
-        return CompiledCodeHeaderUtils.getSignFlag(header);
+    public boolean getHasV3PlusClosuresBytecodes() {
+        return CompiledCodeHeaderUtils.getHasV3PlusClosuresBytecodes(internalHeader);
     }
 
     private AbstractDecoder getDecoder() {
         CompilerAsserts.neverPartOfCompilation();
-        return getSignFlag() ? DecoderV3PlusClosures.SINGLETON : DecoderSistaV1.SINGLETON;
+        return getHasV3PlusClosuresBytecodes() ? DecoderV3PlusClosures.SINGLETON : DecoderSistaV1.SINGLETON;
     }
 
     @Override
@@ -384,18 +437,18 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     }
 
     public void become(final CompiledCodeObject other) {
-        final int header2 = other.header;
+        final long internalHeader2 = other.internalHeader;
         final Object[] literals2 = other.literals;
         final byte[] bytes2 = other.bytes;
-        final CompiledCodeObject outerMethod2 = other.hasExecutionData() ? other.executionData.outerMethod : null;
-        other.setLiteralsAndBytes(header, literals, bytes);
-        if (hasExecutionData() && executionData.outerMethod != null) {
-            other.getExecutionData().outerMethod = executionData.outerMethod;
+        final ShadowBlockMetadata meta2 = other.hasExecutionData() ? other.executionData.shadowBlockMetadata : null;
+        other.setLiteralsAndBytes(internalHeader, literals, bytes);
+        if (hasExecutionData() && executionData.shadowBlockMetadata != null) {
+            other.getExecutionData().shadowBlockMetadata = executionData.shadowBlockMetadata;
         }
         other.invalidateCallTargetStable("become");
-        setLiteralsAndBytes(header2, literals2, bytes2);
-        if (outerMethod2 != null) {
-            getExecutionData().outerMethod = outerMethod2;
+        setLiteralsAndBytes(internalHeader2, literals2, bytes2);
+        if (meta2 != null) {
+            getExecutionData().shadowBlockMetadata = meta2;
         }
         other.invalidateCallTarget();
         invalidateCallTarget();
@@ -443,7 +496,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
 
     @Idempotent
     public boolean hasPrimitive() {
-        return CompiledCodeHeaderUtils.getHasPrimitive(header);
+        return CompiledCodeHeaderUtils.getHasPrimitive(internalHeader);
     }
 
     public int primitiveIndex() {
@@ -513,7 +566,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
             if (selectorObj != null) {
                 selector = selectorObj.asStringUnsafe();
             }
-            return className + "#" + selector;
+            return (isShadowBlock() ? "[] embedded in " : "") + className + "#" + selector;
         }
     }
 
@@ -526,7 +579,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     }
 
     public boolean pointsTo(final Object thang) {
-        if (thang instanceof Long value && value == header) {
+        if (thang instanceof Long value && value == getHeader()) {
             return true;
         }
         return ArrayUtils.contains(getLiterals(), thang);
@@ -632,10 +685,10 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
         return literals[getNumLiterals() - 1];
     }
 
-    public boolean hasMethodClass(final AbstractPointersObjectReadNode readNode, final Node inlineTarget) {
+    public boolean hasMethodClass(final AbstractPointersObjectReadNode readNode) {
         final Object mca = getMethodClassAssociation();
         if (mca instanceof final AbstractPointersObject apo) {
-            return readNode.execute(inlineTarget, apo, CLASS_BINDING.VALUE) != NilObject.SINGLETON;
+            return readNode.execute(apo, CLASS_BINDING.VALUE) != NilObject.SINGLETON;
         } else {
             return false;
         }
@@ -644,8 +697,8 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     public ClassObject getMethodClassSlow() {
         CompilerAsserts.neverPartOfCompilation();
         final AbstractPointersObjectReadNode readNode = AbstractPointersObjectReadNode.getUncached();
-        if (hasMethodClass(readNode, null)) {
-            final ClassObject methodClass = getMethodClass(readNode, null);
+        if (hasMethodClass(readNode)) {
+            final ClassObject methodClass = getMethodClass(readNode);
             if (methodClass.isNotForwarded()) {
                 return methodClass;
             } else {
@@ -659,22 +712,22 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
 
     /** CompiledMethod>>#methodClass. */
     @NonIdempotent
-    public ClassObject getMethodClass(final AbstractPointersObjectReadNode readNode, final Node inlineTarget) {
-        return (ClassObject) readNode.execute(inlineTarget, (AbstractPointersObject) getMethodClassAssociation(), CLASS_BINDING.VALUE);
+    public ClassObject getMethodClass(final AbstractPointersObjectReadNode readNode) {
+        return (ClassObject) readNode.execute((AbstractPointersObject) getMethodClassAssociation(), CLASS_BINDING.VALUE);
     }
 
     public long getHeader() {
-        return header;
+        return CompiledCodeHeaderUtils.toSmallIntegerValue(internalHeader);
     }
 
     public void initializeHeader(final long value) {
-        this.header = CompiledCodeHeaderUtils.toInt(value);
+        this.internalHeader = CompiledCodeHeaderUtils.fromSmallIntegerValue(value);
         literals = ArrayUtils.withAll(getNumLiterals(), NilObject.SINGLETON);
     }
 
     public void setHeader(final long value) {
         final int oldNumLiterals = getNumLiterals();
-        header = CompiledCodeHeaderUtils.toInt(value);
+        internalHeader = CompiledCodeHeaderUtils.fromSmallIntegerValue(value);
         assert getNumLiterals() == oldNumLiterals;
         invalidateCallTarget();
     }
@@ -714,6 +767,8 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
      * CompiledCode Header Specification.
      *
      * <pre>
+     * IMAGE:
+     *
      *   (index 0)      15 bits:   number of literals (#numLiterals)
      *   (index 15)      1 bit:    jit without counters - reserved for methods that have been optimized by Sista
      *   (index 16)      1 bit:    has primitive
@@ -721,41 +776,137 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
      *   (index 18)      6 bits:   number of temporary variables (#numTemps)
      *   (index 24)      4 bits:   number of arguments to the method (#numArgs)
      *   (index 28)      2 bits:   reserved for an access modifier (00-unused, 01-private, 10-protected, 11-public), although accessors for bit 29 exist (see #flag).
+     *   (index 30)      2 bits:   reserved, 0
+     *
+     *   (index 32)      5 bits:   reserved, 0
+     *   (index 37)^     1 bit:    whether a huge frame is needed (frameSize = 128)
+     *   (index 38)^     2 bits:   number of temporary variables extension upper bits
+     *   (index 40)      4 bits:   reserved, 0
+     *   (index 44)^     4 bits:   number of arguments extension upper bits
+     *   (index 48)      12 bits:  reserved, 0
+     *
+     *   sign bit:       1 bit:    selects the instruction set, >= 0 Primary, < 0 Secondary (#signFlag)
+     *
+     * ^ These 3 fields are zero in vanilla Squeak and Cuis images. They are used to extend numArgs / numTemps.
+     *
+     * Since CompiledCode's hash includes the header value in the hash computation, we need to ensure that
+     * the header value as it appears to Smalltalk is the same on TS and OSVM. We can do this by restricting the
+     * value of the header as visible to Smalltalk to fall within OSVM's SmallInteger 61 bit range.
+     *
+     * Internally, we store a rearranged 64-bit header and arrange it back to the OSVM format when needed.
+     *
+     * CompiledCodeObject header:
+     *
+     *   (index 0)      16 bits:   number of literals (#numLiterals)
+     *   (index 16)      8 bits:   number of temporary variables (#numTemps)
+     *   (index 24)      8 bits:   number of arguments to the method (#numArgs)
+     *   (index 32)      2 bits:   reserved for an access modifier, although accessors for upper bit exist.
+     *   (index 34)      1 bit:    jit without counters - reserved for methods that have been optimized by Sista
+     *   (index 35)      1 bit:    has primitive
+     *   (index 36)      2 bits:   frame size: 00 = SmallFrame, 01 = LargeFrame, 1X = HugeFrame
+     *   (index 38)      25 bits:  reserved, 0
      *   sign bit:       1 bit:    selects the instruction set, >= 0 Primary, < 0 Secondary (#signFlag)
      * </pre>
      */
     public static final class CompiledCodeHeaderUtils {
-        public static int makeHeader(final boolean signFlag, final int numArgs, final int numTemps, final int numLiterals, final boolean hasPrimitive, final boolean needsLargeFrame) {
-            return numLiterals & 0x7FFF | (hasPrimitive ? 0x10000 : 0) | (needsLargeFrame ? 0x20000 : 0) | (numTemps & 0x3F) << 18 | (numArgs & 0x0F) << 24 | (signFlag ? 0 : Integer.MIN_VALUE);
+
+        // Frame size table indexed by the concatenation of hugeFrame and largeFrame bits.
+        // HUGE_FRAMESIZE limits numArgs / numTemps to 127.
+        private static final int[] FRAME_SIZES = {
+                        CONTEXT.SMALL_FRAMESIZE,
+                        CONTEXT.LARGE_FRAMESIZE,
+                        CONTEXT.HUGE_FRAMESIZE,
+                        CONTEXT.HUGE_FRAMESIZE
+        };
+
+        // Create an OSVM SmallInteger value header for an internally generated method.
+        // Restricted to 15 arguments and 63 temporaries.
+        public static long makeHeaderWord(final boolean hasV3PlusClosuresBytecodes, final int numArgs, final int numTemps, final int numLiterals, final boolean hasPrimitive,
+                        final boolean needsLargeFrame) {
+            return numLiterals & 0x7FFF | (hasPrimitive ? 0x10000 : 0) | (needsLargeFrame ? 0x20000 : 0) | (numTemps & 0x3F) << 18 | (numArgs & 0x0F) << 24 |
+                            (hasV3PlusClosuresBytecodes ? 0 : SqueakImageConstants.SMALL_INTEGER_MIN_VAL);
         }
 
-        private static int getNumLiterals(final int header) {
-            return header & 0x7FFF;
+        private static int getNumLiterals(final long internalHeader) {
+            // Mask to field size; size limited in image to 15 bits.
+            return (int) internalHeader & 0xFFFF;
         }
 
-        private static boolean getHasPrimitive(final int header) {
-            return (header & 0x10000) != 0;
+        private static int getNumTemps(final long internalHeader) {
+            // Mask to field size; size limited in image to 6 bits (7 bits with extension).
+            return (int) (internalHeader >> 16) & 0xFF;
         }
 
-        private static boolean getNeedsLargeFrame(final int header) {
-            return (header & 0x20000) != 0;
+        private static int getNumArguments(final long internalHeader) {
+            // Mask to field size; size limited in image to 6 bits (7 bits with extension).
+            return (int) (internalHeader >> 24) & 0xFF;
         }
 
-        private static int getNumTemps(final int header) {
-            return (header >> 18) & 0x3F;
+        private static boolean getHasPrimitive(final long internalHeader) {
+            return (internalHeader & 0x800000000L) != 0;
         }
 
-        private static int getNumArguments(final int header) {
-            return (header >> 24) & 0x0F;
+        public static int getSqueakContextSize(final long internalHeader) {
+            return FRAME_SIZES[(int) (internalHeader >> 36) & 0x3];
         }
 
-        private static boolean getSignFlag(final int header) {
-            return header >= 0;
+        private static boolean getHasV3PlusClosuresBytecodes(final long internalHeader) {
+            return internalHeader >= 0;
         }
 
-        // Convert 61bit to more compact 32bit representation
-        private static int toInt(final long headerWord) {
-            return (int) (headerWord | (headerWord < 0 ? Integer.MIN_VALUE : 0));
+        // Convert 61-or-more-bit SmallInteger into internal representation.
+        public static long fromSmallIntegerValue(final long headerWord) {
+            // @formatter:off
+            return
+                // 1. MASTER PASS-THROUGH (Shift = 0)
+                // Includes: Sign (63), hugeFrame (37), numArgs low (24-27), numLiterals (0-14)
+                (headerWord & 0x800000200F007FFFL) |
+
+                // 2. SHARED EXTENSION SHIFT (Shift = -16)
+                // Args Ext (44-47 -> 28-31) & Temps Ext (38-39 -> 22-23)
+                ((headerWord & 0x0000F0C000000000L) >> 16) |
+
+                // 3. FLAGS (Shift = +19)
+                // [largeFrame | hasPrim | jit] (15-17 -> 34-36)
+                ((headerWord & 0x38000L) << 19) |
+
+                // 4. ACCESS (Shift = +4)
+                // (28-29 -> 32-33)
+                ((headerWord & 0x30000000L) << 4) |
+
+                // 5. NUMTEMPS LOW (Shift = -2)
+                // (18-23 -> 16-21)
+                ((headerWord & 0xFC0000L) >> 2);
+            // @formatter:on
+        }
+
+        // Convert internal representation back to 64-bit representation as a SmallInteger.
+        public static long toSmallIntegerValue(final long internalHeader) {
+            // @formatter:off
+            return
+                // 0. Sign bit with sign extension to 61-bits
+                (internalHeader < 0 ? SqueakImageConstants.SMALL_INTEGER_MIN_VAL : 0) |
+
+                // 1. MASTER PASS-THROUGH (Shift = 0)
+                // HugeFrame (37), numArgs low (24-27), numLiterals (0-14)
+                (internalHeader & 0x000000200F007FFFL) |
+
+                // 2. SHARED EXTENSION SHIFT (Shift = +16)
+                // Args Ext (28-31 -> 44-47) & Temps Ext (22-23 -> 38-39)
+                ((internalHeader & 0x00000000F0C00000L) << 16) |
+
+                // 3. FLAGS (Shift = -19)
+                // [largeFrame | hasPrim | jit] (34-36 -> 15-17)
+                ((internalHeader & 0x1C00000000L) >> 19) |
+
+                // 4. ACCESS (Shift = -4)
+                // (32-33 -> 28-29)
+                ((internalHeader & 0x300000000L) >> 4) |
+
+                // 5. NUMTEMPS LOW (Shift = +2)
+                // (16-21 -> 18-23)
+                ((internalHeader & 0x3F0000L) << 2);
+            // @formatter:on
         }
     }
 }

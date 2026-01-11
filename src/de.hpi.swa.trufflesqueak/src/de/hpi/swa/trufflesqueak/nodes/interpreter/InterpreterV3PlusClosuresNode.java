@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2025-2025 Oracle and/or its affiliates
+ * Copyright (c) 2025-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2025-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -69,19 +69,11 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
     }
 
     @Override
-    protected void processBytecode(final int maxPC) {
+    protected void processBytecode(final int startPC, final int endPC) {
         final byte[] bc = code.getBytes();
         final SqueakImageContext image = SqueakImageContext.getSlow();
 
-        int pc;
-        final int endPC;
-        if (code.isShadowBlock()) {
-            pc = code.getOuterMethodStartPCZeroBased();
-            endPC = pc + getBlockSize(bc, pc - 2, pc - 1);
-        } else {
-            pc = 0;
-            endPC = maxPC;
-        }
+        int pc = startPC;
 
         while (pc < endPC) {
             final int currentPC = pc++;
@@ -222,8 +214,9 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                 case BC.PUSH_CLOSURE_COPY_COPIED_VALUES: {
                     final int numArgsNumCopied = getUnsignedInt(bc, pc++);
                     final int numArgs = numArgsNumCopied & 0xF;
+                    final int numCopied = numArgsNumCopied >> 4 & 0xF;
                     final int blockSize = getBlockSize(bc, pc++, pc++);
-                    data[currentPC] = insert(new PushClosureNode(code, pc, numArgs));
+                    data[currentPC] = createBlock(code, pc, numArgs, numCopied, blockSize);
                     pc += blockSize;
                     break;
                 }
@@ -316,7 +309,8 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
         int pc = startPC;
         int sp = startSP;
 
-        final LoopCounter loopCounter = new LoopCounter();
+        int counter = 0;
+        final LoopCounter loopCounter = CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? new LoopCounter() : null;
 
         Object returnValue = null;
         try {
@@ -393,32 +387,38 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         break;
                     }
                     case BC.RETURN_RECEIVER: {
-                        returnValue = handleReturn(frame, currentPC, loopCounter.value, pc, sp, FrameAccess.getReceiver(frame));
+                        returnValue = handleReturn(frame, currentPC, pc, sp, FrameAccess.getReceiver(frame),
+                                        CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? loopCounter.value : counter);
                         pc = LOCAL_RETURN_PC;
                         break;
                     }
                     case BC.RETURN_TRUE: {
-                        returnValue = handleReturn(frame, currentPC, loopCounter.value, pc, sp, BooleanObject.TRUE);
+                        returnValue = handleReturn(frame, currentPC, pc, sp, BooleanObject.TRUE,
+                                        CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? loopCounter.value : counter);
                         pc = LOCAL_RETURN_PC;
                         break;
                     }
                     case BC.RETURN_FALSE: {
-                        returnValue = handleReturn(frame, currentPC, loopCounter.value, pc, sp, BooleanObject.FALSE);
+                        returnValue = handleReturn(frame, currentPC, pc, sp, BooleanObject.FALSE,
+                                        CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? loopCounter.value : counter);
                         pc = LOCAL_RETURN_PC;
                         break;
                     }
                     case BC.RETURN_NIL: {
-                        returnValue = handleReturn(frame, currentPC, loopCounter.value, pc, sp, NilObject.SINGLETON);
+                        returnValue = handleReturn(frame, currentPC, pc, sp, NilObject.SINGLETON,
+                                        CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? loopCounter.value : counter);
                         pc = LOCAL_RETURN_PC;
                         break;
                     }
                     case BC.RETURN_TOP_FROM_METHOD: {
-                        returnValue = handleReturn(frame, currentPC, loopCounter.value, pc, sp, top(frame, sp));
+                        returnValue = handleReturn(frame, currentPC, pc, sp, top(frame, sp),
+                                        CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? loopCounter.value : counter);
                         pc = LOCAL_RETURN_PC;
                         break;
                     }
                     case BC.RETURN_TOP_FROM_BLOCK: {
-                        returnValue = handleReturnFromBlock(frame, currentPC, loopCounter.value, top(frame, sp));
+                        returnValue = handleReturnFromBlock(frame, currentPC, top(frame, sp),
+                                        CompilerDirectives.inCompiledCode() && CompilerDirectives.hasNextTier() ? loopCounter.value : counter);
                         pc = LOCAL_RETURN_PC;
                         break;
                     }
@@ -643,7 +643,7 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final int numCopied = numArgsNumCopied >> 4 & 0xF;
                         final Object[] copiedValues = popN(frame, sp, numCopied);
                         sp -= numCopied;
-                        push(frame, sp++, uncheckedCast(data[currentPC], PushClosureNode.class).execute(frame, copiedValues, getOrCreateContext(frame, currentPC)));
+                        push(frame, sp++, createBlockClosure(frame, uncheckedCast(data[currentPC], CompiledCodeObject.class), copiedValues, getOrCreateContext(frame, currentPC)));
                         pc += blockSize;
                         break;
                     }
@@ -652,10 +652,14 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         pc += offset;
                         if (offset < 0) {
                             if (CompilerDirectives.hasNextTier()) {
-                                final int loopCount = ++loopCounter.value;
-                                if (CompilerDirectives.injectBranchProbability(LoopCounter.CHECK_LOOP_PROBABILITY, loopCount >= LoopCounter.CHECK_LOOP_STRIDE)) {
-                                    LoopNode.reportLoopCount(this, loopCount);
-                                    if (CompilerDirectives.inInterpreter() && !isBlock && BytecodeOSRNode.pollOSRBackEdge(this, loopCount)) {
+                                if (CompilerDirectives.inCompiledCode()) {
+                                    counter = ++loopCounter.value;
+                                } else {
+                                    counter++;
+                                }
+                                if (CompilerDirectives.injectBranchProbability(LoopCounter.CHECK_LOOP_PROBABILITY, counter >= LoopCounter.CHECK_LOOP_STRIDE)) {
+                                    LoopNode.reportLoopCount(this, counter);
+                                    if (CompilerDirectives.inInterpreter() && !isBlock && BytecodeOSRNode.pollOSRBackEdge(this, counter)) {
                                         final Object osrReturnValue = BytecodeOSRNode.tryOSR(this, ((sp & 0xFF) << 16) | pc, null, null, frame);
                                         if (osrReturnValue != null) {
                                             assert !FrameAccess.hasModifiedSender(frame);
@@ -663,7 +667,14 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                                             return osrReturnValue;
                                         }
                                     }
-                                    loopCounter.value = 0;
+                                    if (CompilerDirectives.inCompiledCode()) {
+                                        loopCounter.value = 0;
+                                    } else {
+                                        counter = 0;
+                                    }
+                                }
+                                if (CompilerDirectives.inCompiledCode()) {
+                                    counter = 0;
                                 }
                             }
                             if (data[currentPC] instanceof final CheckForInterruptsInLoopNode checkForInterruptsNode) {
@@ -688,10 +699,14 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         pc += offset;
                         if (offset < 0) {
                             if (CompilerDirectives.hasNextTier()) {
-                                final int loopCount = ++loopCounter.value;
-                                if (CompilerDirectives.injectBranchProbability(LoopCounter.CHECK_LOOP_PROBABILITY, loopCount >= LoopCounter.CHECK_LOOP_STRIDE)) {
-                                    LoopNode.reportLoopCount(this, loopCount);
-                                    if (CompilerDirectives.inInterpreter() && !isBlock && BytecodeOSRNode.pollOSRBackEdge(this, loopCount)) {
+                                if (CompilerDirectives.inCompiledCode()) {
+                                    counter = ++loopCounter.value;
+                                } else {
+                                    counter++;
+                                }
+                                if (CompilerDirectives.injectBranchProbability(LoopCounter.CHECK_LOOP_PROBABILITY, counter >= LoopCounter.CHECK_LOOP_STRIDE)) {
+                                    LoopNode.reportLoopCount(this, counter);
+                                    if (CompilerDirectives.inInterpreter() && !isBlock && BytecodeOSRNode.pollOSRBackEdge(this, counter)) {
                                         final Object osrReturnValue = BytecodeOSRNode.tryOSR(this, ((sp & 0xFF) << 16) | pc, null, null, frame);
                                         if (osrReturnValue != null) {
                                             assert !FrameAccess.hasModifiedSender(frame);
@@ -699,7 +714,14 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                                             return osrReturnValue;
                                         }
                                     }
-                                    loopCounter.value = 0;
+                                    if (CompilerDirectives.inCompiledCode()) {
+                                        loopCounter.value = 0;
+                                    } else {
+                                        counter = 0;
+                                    }
+                                }
+                                if (CompilerDirectives.inCompiledCode()) {
+                                    counter = 0;
                                 }
                             }
                             if (data[currentPC] instanceof final CheckForInterruptsInLoopNode checkForInterruptsNode) {
@@ -738,36 +760,21 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             /* Profiled version of LargeIntegers.add(image, lhs, rhs). */
                             final long r = lhs + rhs;
                             if (((lhs ^ r) & (rhs ^ r)) < 0) {
-                                if ((state & 0b10000) == 0) {
-                                    CompilerDirectives.transferToInterpreterAndInvalidate();
-                                    profiles[currentPC] |= 0b10000;
-                                }
+                                enter(currentPC, state, BRANCH3);
                                 result = LargeIntegers.addLarge(image, lhs, rhs);
                             } else {
-                                if ((state & 0b100000) == 0) {
-                                    CompilerDirectives.transferToInterpreterAndInvalidate();
-                                    profiles[currentPC] |= 0b100000;
-                                }
+                                enter(currentPC, state, BRANCH4);
                                 result = r;
                             }
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b1000000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000000;
-                            }
+                            enter(currentPC, state, BRANCH5);
                             result = PrimSmallFloatAddNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -781,36 +788,21 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             /* Profiled version of LargeIntegers.subtract(image, lhs, rhs). */
                             final long r = lhs - rhs;
                             if (((lhs ^ rhs) & (lhs ^ r)) < 0) {
-                                if ((state & 0b10000) == 0) {
-                                    CompilerDirectives.transferToInterpreterAndInvalidate();
-                                    profiles[currentPC] |= 0b10000;
-                                }
+                                enter(currentPC, state, BRANCH3);
                                 result = LargeIntegers.subtractLarge(image, lhs, rhs);
                             } else {
-                                if ((state & 0b100000) == 0) {
-                                    CompilerDirectives.transferToInterpreterAndInvalidate();
-                                    profiles[currentPC] |= 0b100000;
-                                }
+                                enter(currentPC, state, BRANCH4);
                                 result = r;
                             }
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b1000000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000000;
-                            }
+                            enter(currentPC, state, BRANCH5);
                             result = PrimSmallFloatSubtractNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -824,22 +816,13 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimLessThanNode.doLong(lhs, rhs);
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b10000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b10000;
-                            }
+                            enter(currentPC, state, BRANCH3);
                             result = PrimSmallFloatLessThanNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -853,22 +836,13 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimGreaterThanNode.doLong(lhs, rhs);
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b10000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b10000;
-                            }
+                            enter(currentPC, state, BRANCH3);
                             result = PrimSmallFloatGreaterThanNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -882,22 +856,13 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimLessOrEqualNode.doLong(lhs, rhs);
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b10000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b10000;
-                            }
+                            enter(currentPC, state, BRANCH3);
                             result = PrimSmallFloatLessOrEqualNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -911,22 +876,13 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimGreaterOrEqualNode.doLong(lhs, rhs);
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b10000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b10000;
-                            }
+                            enter(currentPC, state, BRANCH3);
                             result = PrimSmallFloatGreaterOrEqualNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -940,22 +896,13 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimEqualNode.doLong(lhs, rhs);
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b10000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b10000;
-                            }
+                            enter(currentPC, state, BRANCH3);
                             result = PrimSmallFloatEqualNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -969,22 +916,13 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimNotEqualNode.doLong(lhs, rhs);
                         } else if (receiver instanceof final Double lhs && arg instanceof final Double rhs) {
-                            if ((state & 0b10000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b10000;
-                            }
+                            enter(currentPC, state, BRANCH3);
                             result = PrimSmallFloatNotEqualNode.doDouble(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -998,16 +936,10 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimBitAndNode.doLong(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);
@@ -1021,16 +953,10 @@ public final class InterpreterV3PlusClosuresNode extends AbstractInterpreterNode
                         final byte state = profiles[currentPC];
                         final Object result;
                         if (receiver instanceof final Long lhs && arg instanceof final Long rhs) {
-                            if ((state & 0b1000) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b1000;
-                            }
+                            enter(currentPC, state, BRANCH2);
                             result = PrimBitOrNode.doLong(lhs, rhs);
                         } else {
-                            if ((state & 0b100) == 0) {
-                                CompilerDirectives.transferToInterpreterAndInvalidate();
-                                profiles[currentPC] |= 0b100;
-                            }
+                            enter(currentPC, state, BRANCH1);
                             externalizePCAndSP(frame, pc, sp);
                             result = send(frame, currentPC, receiver, arg);
                             pc = internalizePC(frame, pc);

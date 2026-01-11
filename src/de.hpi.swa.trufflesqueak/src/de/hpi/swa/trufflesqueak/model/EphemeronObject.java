@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2025 Oracle and/or its affiliates
+ * Copyright (c) 2025-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2025-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -166,6 +166,6 @@ public final class EphemeronObject extends AbstractPointersObject {
     public String toString() {
         CompilerAsserts.neverPartOfCompilation();
         final AbstractPointersObjectNodes.AbstractPointersObjectReadNode readNode = AbstractPointersObjectNodes.AbstractPointersObjectReadNode.getUncached();
-        return readNode.execute(null, this, ObjectLayouts.EPHEMERON.KEY) + " -> " + readNode.execute(null, this, ObjectLayouts.EPHEMERON.VALUE);
+        return readNode.execute(this, ObjectLayouts.EPHEMERON.KEY) + " -> " + readNode.execute(this, ObjectLayouts.EPHEMERON.VALUE);
     }
 }

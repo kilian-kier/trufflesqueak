@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -12,12 +12,23 @@ import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException;
 import de.hpi.swa.trufflesqueak.model.CompiledCodeObject;
 
 public abstract class AbstractDecoder {
+    protected static final byte NEEDS_EXTENSION = -128;
+    protected static final byte NEEDS_SWITCH = -127;
+    protected static final byte NEEDS_SPECIAL_SELECTORS = -126;
+
+    protected static final byte SP_NIL_TAG = 0;
+    protected static final byte SP_BIAS = 1;
+
+    public record ShadowBlockParams(int numArgs, int numCopied, int blockSize) {
+    }
+
+    public abstract ShadowBlockParams decodeShadowBlock(CompiledCodeObject code, int shadowBlockIndex);
 
     public abstract boolean hasStoreIntoTemp1AfterCallPrimitive(CompiledCodeObject code);
 
     public abstract int pcPreviousTo(CompiledCodeObject code, int pc);
 
-    public abstract int determineMaxNumStackSlots(CompiledCodeObject code);
+    public abstract int determineMaxNumStackSlots(CompiledCodeObject code, int initialPC, int maxPC, int initialSP);
 
     protected abstract int decodeNumBytes(CompiledCodeObject code, int index);
 

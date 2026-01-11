@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -45,12 +45,12 @@ public final class ObjectLayoutTest extends AbstractSqueakTestCaseWithDummyImage
         }
 
         for (int i = 0; i < obj1.getNumSlots(); i++) {
-            assertSame("All reads should return nil", NilObject.SINGLETON, readNode.execute(null, obj1, i));
+            assertSame("All reads should return nil", NilObject.SINGLETON, readNode.execute(obj1, i));
         }
 
         /* Ensure nil writes do not change uninitialized locations. */
         for (int i = 0; i < obj1.getNumSlots(); i++) {
-            writeNode.executeNil(null, obj1, i);
+            writeNode.executeNil(obj1, i);
         }
         for (final SlotLocation location : obj1.getLayout().getLocations()) {
             assertTrue("All locations should be uninitialized", location.isUninitialized());
@@ -72,7 +72,7 @@ public final class ObjectLayoutTest extends AbstractSqueakTestCaseWithDummyImage
         assertNotSame("Layouts should be out of sync", obj1.getLayout(), obj2.getLayout());
         assertSame(obj1.object0, dummyClass);
 
-        assertSame(NilObject.SINGLETON, readNode.execute(null, obj2, 1));
+        assertSame(NilObject.SINGLETON, readNode.execute(obj2, 1));
         assertFalse("Read does not update layout", obj2.getLayout().isValid());
         assertNotSame("Layouts should still be out of sync after read", obj1.getLayout(), obj2.getLayout());
 
@@ -81,7 +81,7 @@ public final class ObjectLayoutTest extends AbstractSqueakTestCaseWithDummyImage
 
         writeAndValidate(obj1, 12, image.bitmapClass);
         assertFalse("obj2 should have outdated layout", obj2.getLayout().isValid());
-        assertEquals(1234L, (long) readNode.execute(null, obj2, 12));
+        assertEquals(1234L, (long) readNode.execute(obj2, 12));
         writeAndValidate(obj2, 11, image.bitmapClass);
         assertTrue("obj2 should have valid layout after write", obj2.getLayout().isValid());
         assertEquals("Primitive slot should be unset", 0L, obj2.primitive1);

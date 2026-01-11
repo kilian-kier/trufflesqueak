@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2023-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2023-2025 Oracle and/or its affiliates
+ * Copyright (c) 2023-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2023-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -221,7 +221,7 @@ public final class PrimExternalCallNode extends AbstractPrimitiveNode
         if (!FrameAccess.hasClosure(frame)) {
             initialSP = FrameAccess.getCodeObject(frame).getNumTemps();
         } else {
-            initialSP = FrameAccess.getClosure(frame).getNumTemps();
+            initialSP = FrameAccess.getClosure(frame).getInitialSP();
         }
         final int stackPointer = FrameAccess.getStackPointer(frame);
         for (int i = 0; i < numReceiverAndArguments; i++) {

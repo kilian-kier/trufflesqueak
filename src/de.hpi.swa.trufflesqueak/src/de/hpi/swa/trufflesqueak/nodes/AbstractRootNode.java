@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2023-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2023-2025 Oracle and/or its affiliates
+ * Copyright (c) 2023-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2023-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -21,7 +21,7 @@ public abstract class AbstractRootNode extends RootNode {
 
     protected AbstractRootNode(final SqueakImageContext image, final CompiledCodeObject code) {
         super(image.getLanguage(), code.getFrameDescriptor());
-        interpreterNode = code.getSignFlag() ? new InterpreterV3PlusClosuresNode(code) : new InterpreterSistaV1Node(code);
+        interpreterNode = code.getHasV3PlusClosuresBytecodes() ? new InterpreterV3PlusClosuresNode(code) : new InterpreterSistaV1Node(code);
     }
 
     protected AbstractRootNode(final AbstractRootNode original) {

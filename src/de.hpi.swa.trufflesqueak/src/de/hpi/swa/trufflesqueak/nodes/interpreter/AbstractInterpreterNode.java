@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2025-2025 Oracle and/or its affiliates
+ * Copyright (c) 2025-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2025-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -11,6 +11,7 @@ import static de.hpi.swa.trufflesqueak.util.UnsafeUtils.uncheckedCast;
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.CompilerDirectives.ValueType;
 import com.oracle.truffle.api.HostCompilerDirectives.InliningCutoff;
 import com.oracle.truffle.api.frame.Frame;
 import com.oracle.truffle.api.frame.VirtualFrame;
@@ -54,6 +55,14 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     private static final String[] READONLY_CLASSES = {"ClassBinding", "ReadOnlyVariableBinding"};
     protected static final int LOCAL_RETURN_PC = -2;
 
+    protected static final byte BRANCH1 = 0b1;
+    protected static final byte BRANCH2 = 0b10;
+    protected static final byte BRANCH3 = 0b100;
+    protected static final byte BRANCH4 = 0b1000;
+    protected static final byte BRANCH5 = 0b10000;
+    protected static final byte BRANCH6 = 0b100000;
+    protected static final byte BRANCH7 = 0b1000000;
+
     protected final CompiledCodeObject code;
     protected final boolean isBlock;
 
@@ -68,10 +77,11 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         this.code = code;
         isBlock = code.isCompiledBlock() || code.isShadowBlock();
         numArguments = -1;
-        final int maxPC = BytecodeUtils.trailerPosition(code);
-        data = new Object[maxPC];
-        profiles = new byte[maxPC];
-        processBytecode(maxPC);
+        final int startPC = code.getStartPCZeroBased();
+        final int endPC = code.getMaxPCZeroBased();
+        data = new Object[endPC];
+        profiles = new byte[endPC];
+        processBytecode(startPC, endPC);
     }
 
     @SuppressWarnings("this-escape")
@@ -81,14 +91,15 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         isBlock = original.isBlock;
         numArguments = original.numArguments;
         // fresh fields
-        final int maxPC = BytecodeUtils.trailerPosition(code);
-        data = new Object[maxPC];
-        profiles = new byte[maxPC];
-        processBytecode(maxPC);
+        final int startPC = code.getStartPCZeroBased();
+        final int endPC = code.getMaxPCZeroBased();
+        data = new Object[endPC];
+        profiles = new byte[endPC];
+        processBytecode(startPC, endPC);
         osrMetadata = null;
     }
 
-    protected abstract void processBytecode(int maxPC);
+    protected abstract void processBytecode(int startPC, int endPC);
 
     @Override
     public abstract Object execute(VirtualFrame frame, int startPC, int startSP);
@@ -102,18 +113,12 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         }
     }
 
-    static final class PushClosureNode extends AbstractNode {
-        private final CompiledCodeObject block;
-        private final int numArgs;
+    protected static final CompiledCodeObject createBlock(final CompiledCodeObject code, final int pc, final int numArgs, final int numCopied, final int blockSize) {
+        return code.createShadowBlock(code.getInitialPC() + pc, numArgs, numCopied, blockSize);
+    }
 
-        PushClosureNode(final CompiledCodeObject code, final int pc, final int numArgs) {
-            block = code.createShadowBlock(code.getInitialPC() + pc);
-            this.numArgs = numArgs;
-        }
-
-        BlockClosureObject execute(final VirtualFrame frame, final Object[] copiedValues, final ContextObject outerContext) {
-            return new BlockClosureObject(getContext().blockClosureClass, block, numArgs, copiedValues, FrameAccess.getReceiver(frame), outerContext);
-        }
+    protected static final BlockClosureObject createBlockClosure(final VirtualFrame frame, final CompiledCodeObject block, final Object[] copiedValues, final ContextObject outerContext) {
+        return new BlockClosureObject(true, block, block.getShadowBlockNumArgs(), copiedValues, FrameAccess.getReceiver(frame), outerContext);
     }
 
     protected final Object send(final VirtualFrame frame, final int currentPC, final Object receiver) {
@@ -170,26 +175,14 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
 
     protected final Object handleReturnException(final VirtualFrame frame, final int currentPC, final AbstractStandardSendReturn returnException) {
         final byte state = profiles[currentPC];
-        if ((state & 0b100) == 0) {
-            CompilerDirectives.transferToInterpreterAndInvalidate();
-            profiles[currentPC] |= 0b100;
-        }
+        enter(currentPC, state, BRANCH1);
         if (returnException.targetIsFrame(frame)) {
-            if ((state & 0b1000) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b1000;
-            }
+            enter(currentPC, state, BRANCH2);
             return returnException.getReturnValue();
         } else {
-            if ((state & 0b10000) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b10000;
-            }
+            enter(currentPC, state, BRANCH3);
             if (returnException instanceof NonLocalReturn) {
-                if ((state & 0b100000) == 0) {
-                    CompilerDirectives.transferToInterpreterAndInvalidate();
-                    profiles[currentPC] |= 0b100000;
-                }
+                enter(currentPC, state, BRANCH4);
                 FrameAccess.terminateFrame(frame);
             }
             throw returnException;
@@ -205,23 +198,14 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         final byte state = profiles[currentPC];
         final ContextObject context = FrameAccess.getContext(frame);
         if (context != null) {
-            if ((state & 0b100) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b100;
-            }
+            enter(currentPC, state, BRANCH1);
             if (!context.hasTruffleFrame()) {
-                if ((state & 0b1000) == 0) {
-                    CompilerDirectives.transferToInterpreterAndInvalidate();
-                    profiles[currentPC] |= 0b1000;
-                }
+                enter(currentPC, state, BRANCH2);
                 context.setTruffleFrame(frame.materialize());
             }
             return context;
         } else {
-            if ((state & 0b10000) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b10000;
-            }
+            enter(currentPC, state, BRANCH3);
             return new ContextObject(frame.materialize());
         }
     }
@@ -256,10 +240,7 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     public final Object getAndResolveLiteral(final int currentPC, final long longIndex) {
         final Object litVar = code.getLiteral(longIndex);
         if (litVar instanceof final AbstractSqueakObjectWithClassAndHash obj) {
-            if ((profiles[currentPC] & 0b100) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b100;
-            }
+            enter(currentPC, profiles[currentPC], BRANCH1);
             if (!obj.isNotForwarded()) {
                 CompilerDirectives.transferToInterpreter();
                 final AbstractSqueakObjectWithClassAndHash forwarded = obj.getForwardingPointer();
@@ -282,7 +263,7 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         return Byte.toUnsignedInt(getByte(bc, pc));
     }
 
-    protected final Object handleReturn(final VirtualFrame frame, final int currentPC, final int loopCounter, final int pc, final int sp, final Object result) {
+    protected final Object handleReturn(final VirtualFrame frame, final int currentPC, final int pc, final int sp, final Object result, final int loopCounter) {
         if (loopCounter > 0) {
             LoopNode.reportLoopCount(this, loopCounter);
         }
@@ -293,7 +274,7 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
         }
     }
 
-    protected final Object handleReturnFromBlock(final VirtualFrame frame, final int currentPC, final int loopCounter, final Object result) {
+    protected final Object handleReturnFromBlock(final VirtualFrame frame, final int currentPC, final Object result, final int loopCounter) {
         if (loopCounter > 0) {
             LoopNode.reportLoopCount(this, loopCounter);
         }
@@ -303,16 +284,10 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     private Object handleNormalReturn(final VirtualFrame frame, final int currentPC, final Object result) {
         final byte state = profiles[currentPC];
         if (FrameAccess.hasModifiedSender(frame)) {
-            if ((state & 0b100) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b100;
-            }
+            enter(currentPC, state, BRANCH1);
             throw new NonVirtualReturn(result, FrameAccess.getSender(frame));
         } else {
-            if ((state & 0b1000) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b1000;
-            }
+            enter(currentPC, state, BRANCH2);
             FrameAccess.terminateFrame(frame);
             return result;
         }
@@ -378,16 +353,10 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     private Object followForwarded(final int currentPC, final Object value) {
         final byte state = profiles[currentPC];
         if (value instanceof final AbstractSqueakObjectWithClassAndHash object) {
-            if ((state & 0b01) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b01;
-            }
+            enter(currentPC, state, BRANCH6);
             return object.resolveForwardingPointer();
         } else {
-            if ((state & 0b10) == 0) {
-                CompilerDirectives.transferToInterpreterAndInvalidate();
-                profiles[currentPC] |= 0b10;
-            }
+            enter(currentPC, state, BRANCH7);
             return value;
         }
     }
@@ -407,17 +376,9 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     protected final Object pop(final VirtualFrame frame, final int sp) {
         assert sp >= numArguments;
         final int slotIndex = FrameAccess.toStackSlotIndex(sp);
-        try {
-            final Object result = frame.getObjectStatic(slotIndex);
-            frame.setObjectStatic(slotIndex, NilObject.SINGLETON);
-            return result;
-        } catch (final ArrayIndexOutOfBoundsException aioobe) {
-            CompilerDirectives.transferToInterpreter();
-            final int auxSlotIndex = frame.getFrameDescriptor().findOrAddAuxiliarySlot(slotIndex);
-            final Object result = frame.getAuxiliarySlot(auxSlotIndex);
-            frame.setAuxiliarySlot(auxSlotIndex, NilObject.SINGLETON);
-            return result;
-        }
+        final Object result = frame.getObjectStatic(slotIndex);
+        frame.setObjectStatic(slotIndex, NilObject.SINGLETON);
+        return result;
     }
 
     protected final Object popReceiver(final VirtualFrame frame, final int sp) {
@@ -429,7 +390,7 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     }
 
     @ExplodeLoop
-    protected final Object[] popNExploded(final VirtualFrame frame, final int sp, final int numPop) {
+    private Object[] popNExploded(final VirtualFrame frame, final int sp, final int numPop) {
         assert sp - numPop >= numArguments;
         final int topSlotIndex = FrameAccess.toStackSlotIndex(sp - 1);
         final Object[] stackValues = new Object[numPop];
@@ -509,6 +470,7 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     /**
      * Smaller than int[1], does not kill int[] on write and doesn't need bounds checks.
      */
+    @ValueType
     protected static final class LoopCounter {
         protected static final int CHECK_LOOP_STRIDE = 1 << 14;
         protected static final double CHECK_LOOP_PROBABILITY = 1.0D / CHECK_LOOP_STRIDE;
@@ -518,6 +480,17 @@ public abstract class AbstractInterpreterNode extends AbstractInterpreterInstrum
     @Override
     public final CompiledCodeObject getCodeObject() {
         return code;
+    }
+
+    /*
+     * Profiling
+     */
+
+    protected final void enter(final int currentPC, final byte state, final byte stateBit) {
+        if ((state & stateBit) == 0) {
+            CompilerDirectives.transferToInterpreterAndInvalidate();
+            profiles[currentPC] |= stateBit;
+        }
     }
 
     /*

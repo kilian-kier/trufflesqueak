@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2017-2025 Software Architecture Group, Hasso Plattner Institute
- * Copyright (c) 2021-2025 Oracle and/or its affiliates
+ * Copyright (c) 2017-2026 Software Architecture Group, Hasso Plattner Institute
+ * Copyright (c) 2021-2026 Oracle and/or its affiliates
  *
  * Licensed under the MIT License.
  */
@@ -65,12 +65,7 @@ public abstract class AbstractPointersObject extends AbstractSqueakObjectWithCla
 
     protected AbstractPointersObject(final ClassObject classObject, final ObjectLayout layout) {
         super(classObject);
-        if (layout != null) {
-            CompilerAsserts.partialEvaluationConstant(layout);
-            this.layout = layout;
-        } else {
-            this.layout = classObject.getLayout();
-        }
+        this.layout = layout;
         assert classObject.getLayout() == this.layout : "Layout mismatch";
         primitiveExtension = this.layout.getFreshPrimitiveExtension();
         objectExtension = this.layout.getFreshObjectExtension();
@@ -122,7 +117,7 @@ public abstract class AbstractPointersObject extends AbstractSqueakObjectWithCla
         final AbstractPointersObjectWriteNode writeNode = AbstractPointersObjectWriteNode.getUncached();
         final int instSize = instsize();
         for (int i = 0; i < instSize; i++) {
-            writeNode.execute(null, this, i, chunk.getPointer(i));
+            writeNode.execute(this, i, chunk.getPointer(i));
         }
         fillInVariablePart(chunk, instSize);
         assert size() == chunk.getWordSize();
@@ -376,7 +371,7 @@ public abstract class AbstractPointersObject extends AbstractSqueakObjectWithCla
         if (writeHeader(writer)) {
             final AbstractPointersObjectReadNode readNode = AbstractPointersObjectReadNode.getUncached();
             for (int i = 0; i < instsize(); i++) {
-                writer.writeObject(readNode.execute(null, this, i));
+                writer.writeObject(readNode.execute(this, i));
             }
             writeVariablePart(writer);
         }
