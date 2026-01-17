@@ -139,17 +139,22 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
         }
     }
 
+    private final SqueakImageChunk chunk;
+
     public CompiledCodeObject(final SqueakImageChunk chunk) {
         super(chunk);
+        this.chunk = chunk;
         // header is a tagged small integer
-        final long headerWord = (chunk.getWord(0) >> SqueakImageConstants.NUM_TAG_BITS);
+        final long rawWordValue = chunk.getWord(0);
+        final long headerWord = (rawWordValue >> SqueakImageConstants.NUM_TAG_BITS);
         internalHeader = CompiledCodeHeaderUtils.fromSmallIntegerValue(headerWord);
-        literals = chunk.getPointers(1, getNumHeaderAndLiterals());
+        this.literals = chunk.getPointers(1, getNumHeaderAndLiterals());
         bytes = Arrays.copyOfRange(chunk.getBytes(), getBytecodeOffset(), chunk.getBytes().length);
     }
 
     public CompiledCodeObject(final byte[] bytes, final long headerWord, final Object[] literals, final ClassObject classObject) {
         super(classObject);
+        this.chunk = null;
         this.internalHeader = CompiledCodeHeaderUtils.fromSmallIntegerValue(headerWord);
         this.literals = literals;
         this.bytes = bytes;
@@ -157,6 +162,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
 
     public CompiledCodeObject(final CompiledCodeObject original) {
         super(original);
+        this.chunk = original.chunk;
         if (original.hasExecutionData()) {
             getExecutionData().frameDescriptor = original.executionData.frameDescriptor;
         }
@@ -166,6 +172,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
 
     private CompiledCodeObject(final CompiledCodeObject outerCode, final ShadowBlockMetadata shadowBlockMetadata) {
         super(outerCode);
+        this.chunk = outerCode.chunk;
         CompilerAsserts.neverPartOfCompilation();
 
         // header info and data
@@ -179,6 +186,7 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
 
     private CompiledCodeObject(final int size, final ClassObject classObject) {
         super(classObject);
+        this.chunk = null;
         bytes = new byte[size];
     }
 
@@ -411,7 +419,8 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     }
 
     public int getMaxPCZeroBased() {
-        return isShadowBlock() ? getShadowBlockMetadata().getOuterMethodMaxPCZeroBased() : trailerPosition(this);
+        final int pc = isShadowBlock() ? getShadowBlockMetadata().getOuterMethodMaxPCZeroBased() : trailerPosition(this);
+        return Math.max(1, Math.min(pc, bytes.length));
     }
 
     public int getInitialSP() {
@@ -419,7 +428,11 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     }
 
     public int getMaxNumStackSlots() {
-        return getDecoder().determineMaxNumStackSlots(this, getStartPCZeroBased(), getMaxPCZeroBased(), getInitialSP());
+        final int calculatedSlots = Math.max(getDecoder().determineMaxNumStackSlots(this, getStartPCZeroBased(), getMaxPCZeroBased(), getInitialSP()), getSqueakContextSize());
+        if (getSqueakClass().getImage().isPharo()) {
+            return Math.max(calculatedSlots, 56);
+        }
+        return calculatedSlots;
     }
 
     public boolean getHasV3PlusClosuresBytecodes() {
@@ -474,15 +487,27 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     }
 
     public Object getLiteral(final long longIndex) {
-        return UnsafeUtils.getObject(literals, longIndex);
+        if (longIndex < 0 || longIndex >= literals.length) {
+            return NilObject.SINGLETON;
+        }
+        return literals[(int) longIndex];
     }
 
     public void setLiteral(final long longIndex, final Object obj) {
-        UnsafeUtils.putObject(literals, longIndex, obj);
+        if (longIndex >= 0 && longIndex < literals.length) {
+            literals[(int) longIndex] = obj;
+        }
     }
 
     /** See storeLiteralVariable:withValue:. */
     public Object getAndResolveLiteral(final long longIndex) {
+        if (longIndex < 0 || longIndex >= literals.length) {
+            // CompiledBlock bytecodes reference the outer method's literal frame
+            if (isCompiledBlock()) {
+                return getMethod().getAndResolveLiteral(longIndex);
+            }
+            return NilObject.SINGLETON;
+        }
         final Object litVar = getLiteral(longIndex);
         if (litVar instanceof final AbstractSqueakObjectWithClassAndHash obj && !obj.isNotForwarded()) {
             CompilerDirectives.transferToInterpreter();
@@ -553,6 +578,11 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     @Override
     public String toString() {
         CompilerAsserts.neverPartOfCompilation();
+        return getMethodName();
+    }
+
+    @CompilerDirectives.TruffleBoundary
+    public String getMethodName() {
         if (isCompiledBlock()) {
             return "[] in " + getMethod().toString();
         } else {
@@ -595,10 +625,13 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
         super.pointersBecomeOneWay(fromToMap);
         for (int i = 0; i < literals.length; i++) {
-            final Object replacement = fromToMap.get(literals[i]);
-            if (replacement != null) {
-                literals[i] = replacement;
-                invalidateCallTarget("Literal changed via becomeForward:");
+            final Object literal = literals[i];
+            if (literal != null) {
+                final Object replacement = fromToMap.get(literal);
+                if (replacement != null) {
+                    literals[i] = replacement;
+                    invalidateCallTarget("Literal changed via becomeForward:");
+                }
             }
         }
     }
@@ -714,6 +747,10 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
     @NonIdempotent
     public ClassObject getMethodClass(final AbstractPointersObjectReadNode readNode) {
         return (ClassObject) readNode.execute((AbstractPointersObject) getMethodClassAssociation(), CLASS_BINDING.VALUE);
+    }
+
+    public SqueakImageChunk getChunk() {
+        return chunk;
     }
 
     public long getHeader() {
@@ -856,57 +893,87 @@ public final class CompiledCodeObject extends AbstractSqueakObjectWithClassAndHa
 
         // Convert 61-or-more-bit SmallInteger into internal representation.
         public static long fromSmallIntegerValue(final long headerWord) {
-            // @formatter:off
-            return
-                // 1. MASTER PASS-THROUGH (Shift = 0)
-                // Includes: Sign (63), hugeFrame (37), numArgs low (24-27), numLiterals (0-14)
-                (headerWord & 0x800000200F007FFFL) |
+            long internal = 0;
+            // 1. Sign bit (Sign -> 63)
+            if (headerWord < 0) {
+                internal |= (1L << 63);
+            }
+            // 2. numLiterals (0-14 -> 0-14)
+            internal |= (headerWord & 0x7FFFL);
 
-                // 2. SHARED EXTENSION SHIFT (Shift = -16)
-                // Args Ext (44-47 -> 28-31) & Temps Ext (38-39 -> 22-23)
-                ((headerWord & 0x0000F0C000000000L) >> 16) |
+            // 3. requiresCounters (15 -> 34). IMAGE 15 == 1 means NO counters.
+            if ((headerWord & (1L << 15)) == 0) {
+                internal |= (1L << 34);
+            }
 
-                // 3. FLAGS (Shift = +19)
-                // [largeFrame | hasPrim | jit] (15-17 -> 34-36)
-                ((headerWord & 0x38000L) << 19) |
+            // 4. hasPrimitive (16 -> 35)
+            if ((headerWord & (1L << 16)) != 0) {
+                internal |= (1L << 35);
+            }
 
-                // 4. ACCESS (Shift = +4)
-                // (28-29 -> 32-33)
-                ((headerWord & 0x30000000L) << 4) |
+            // 5. frameSize: Large (17 -> 36), Huge (37 -> 37)
+            if ((headerWord & (1L << 17)) != 0) {
+                internal |= (1L << 36);
+            }
+            if ((headerWord & (1L << 37)) != 0) {
+                internal |= (1L << 37);
+            }
 
-                // 5. NUMTEMPS LOW (Shift = -2)
-                // (18-23 -> 16-21)
-                ((headerWord & 0xFC0000L) >> 2);
-            // @formatter:on
+            // 6. numTemps: low (18-23 -> 16-21), high (38-39 -> 22-23)
+            internal |= ((headerWord >> 18) & 0x3FL) << 16;
+            internal |= ((headerWord >> 38) & 0x3L) << 22;
+
+            // 7. numArgs: low (24-27 -> 24-27), high (44-47 -> 28-31)
+            internal |= ((headerWord >> 24) & 0xFL) << 24;
+            internal |= ((headerWord >> 44) & 0xFL) << 28;
+
+            // 8. access modifier (28-29 -> 32-33)
+            internal |= ((headerWord >> 28) & 0x3L) << 32;
+
+            return internal;
         }
 
         // Convert internal representation back to 64-bit representation as a SmallInteger.
-        public static long toSmallIntegerValue(final long internalHeader) {
-            // @formatter:off
-            return
-                // 0. Sign bit with sign extension to 61-bits
-                (internalHeader < 0 ? SqueakImageConstants.SMALL_INTEGER_MIN_VAL : 0) |
+        public static long toSmallIntegerValue(final long internal) {
+            long header = 0;
+            // 1. numLiterals
+            header |= (internal & 0x7FFFL);
 
-                // 1. MASTER PASS-THROUGH (Shift = 0)
-                // HugeFrame (37), numArgs low (24-27), numLiterals (0-14)
-                (internalHeader & 0x000000200F007FFFL) |
+            // 2. sign bit
+            if (internal < 0) {
+                header |= SqueakImageConstants.SMALL_INTEGER_MIN_VAL;
+            }
 
-                // 2. SHARED EXTENSION SHIFT (Shift = +16)
-                // Args Ext (28-31 -> 44-47) & Temps Ext (22-23 -> 38-39)
-                ((internalHeader & 0x00000000F0C00000L) << 16) |
+            // 3. requiresCounters (34 -> !15)
+            if ((internal & (1L << 34)) == 0) {
+                header |= (1L << 15);
+            }
 
-                // 3. FLAGS (Shift = -19)
-                // [largeFrame | hasPrim | jit] (34-36 -> 15-17)
-                ((internalHeader & 0x1C00000000L) >> 19) |
+            // 4. hasPrimitive (35 -> 16)
+            if ((internal & (1L << 35)) != 0) {
+                header |= (1L << 16);
+            }
 
-                // 4. ACCESS (Shift = -4)
-                // (32-33 -> 28-29)
-                ((internalHeader & 0x300000000L) >> 4) |
+            // 5. frameSize: Large (36 -> 17), Huge (37 -> 37)
+            if ((internal & (1L << 36)) != 0) {
+                header |= (1L << 17);
+            }
+            if ((internal & (1L << 37)) != 0) {
+                header |= (1L << 37);
+            }
 
-                // 5. NUMTEMPS LOW (Shift = +2)
-                // (16-21 -> 18-23)
-                ((internalHeader & 0x3F0000L) << 2);
-            // @formatter:on
+            // 6. numTemps: low (16-21 -> 18-23), high (22-23 -> 38-39)
+            header |= ((internal >> 16) & 0x3FL) << 18;
+            header |= ((internal >> 22) & 0x3L) << 38;
+
+            // 7. numArgs: low (24-27 -> 24-27), high (28-31 -> 44-47)
+            header |= ((internal >> 24) & 0xFL) << 24;
+            header |= ((internal >> 28) & 0xFL) << 44;
+
+            // 8. access modifier (32-33 -> 28-29)
+            header |= ((internal >> 32) & 0x3L) << 28;
+
+            return header;
         }
     }
 }

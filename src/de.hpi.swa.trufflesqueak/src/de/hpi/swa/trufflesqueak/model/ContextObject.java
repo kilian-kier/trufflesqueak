@@ -27,6 +27,7 @@ import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
 import de.hpi.swa.trufflesqueak.image.SqueakImageWriter;
 import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts.CONTEXT;
 import de.hpi.swa.trufflesqueak.util.FrameAccess;
+import de.hpi.swa.trufflesqueak.util.LogUtils;
 import de.hpi.swa.trufflesqueak.util.MiscUtils;
 import de.hpi.swa.trufflesqueak.util.ObjectGraphUtils.ObjectTracer;
 
@@ -90,6 +91,12 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
             closure = null;
             methodOrBlock = code;
             numArgs = code.getNumArgs();
+        } else if (!(closureOrNil instanceof BlockClosureObject)) {
+            // Pharo 13 compatibility: slot may contain unexpected type (e.g., ClassObject)
+            // Treat as nil closure to allow image loading to continue
+            closure = null;
+            methodOrBlock = code;
+            numArgs = code.getNumArgs();
         } else {
             closure = (BlockClosureObject) closureOrNil;
             numArgs = closure.getNumArgs() + closure.getNumCopied();
@@ -112,8 +119,11 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
         final Object pc = chunk.getPointer(CONTEXT.INSTRUCTION_POINTER);
         if (pc == NilObject.SINGLETON) {
             removeInstructionPointer();
+        } else if (pc instanceof Long pcLong) {
+            setInstructionPointer(MiscUtils.toIntExact(pcLong) - methodOrBlock.getInitialPC());
         } else {
-            setInstructionPointer(MiscUtils.toIntExact((long) pc) - methodOrBlock.getInitialPC());
+            // Pharo 13 compatibility: treat unexpected type as nil PC
+            removeInstructionPointer();
         }
         final int stackPointer = MiscUtils.toIntExact((long) chunk.getPointer(CONTEXT.STACKPOINTER));
         setStackPointer(stackPointer);
@@ -574,19 +584,29 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
 
     @Override
     public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
+        super.pointersBecomeOneWay(fromToMap);
         if (hasTruffleFrame()) {
             final MaterializedFrame frame = getTruffleFrame();
             final CompiledCodeObject compiledCodeObject = FrameAccess.getCodeObject(frame);
-            if (compiledCodeObject != null && fromToMap.get(compiledCodeObject) instanceof final CompiledCodeObject o) {
-                overwriteCodeObject(o);
+            if (compiledCodeObject != null) {
+                final Object replacement = fromToMap.get(compiledCodeObject);
+                if (replacement instanceof final CompiledCodeObject o) {
+                    overwriteCodeObject(o);
+                }
             }
             final AbstractSqueakObject sender = FrameAccess.getSender(frame);
-            if (sender != null && fromToMap.get(sender) instanceof final ContextObject o) {
-                setSender(o);
+            if (sender != null) {
+                final Object replacement = fromToMap.get(sender);
+                if (replacement instanceof final ContextObject o) {
+                    setSender(o);
+                }
             }
             final Object closure = FrameAccess.getClosure(frame);
-            if (closure != null && fromToMap.get(closure) instanceof final BlockClosureObject o) {
-                setClosure(o);
+            if (closure != null) {
+                final Object replacement = fromToMap.get(closure);
+                if (replacement instanceof final BlockClosureObject o) {
+                    setClosure(o);
+                }
             }
             final Object[] arguments = frame.getArguments();
             for (int i = FrameAccess.getReceiverStartIndex(); i < arguments.length; i++) {

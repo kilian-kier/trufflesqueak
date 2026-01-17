@@ -15,8 +15,10 @@ import de.hpi.swa.trufflesqueak.exceptions.SqueakExceptions.SqueakException;
 import de.hpi.swa.trufflesqueak.image.SqueakImageChunk;
 import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
 import de.hpi.swa.trufflesqueak.image.SqueakImageWriter;
+import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts;
 import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts.BLOCK_CLOSURE;
 import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts.CONTEXT;
+import de.hpi.swa.trufflesqueak.model.layout.ObjectLayouts.PHARO_BLOCK_CLOSURE;
 import de.hpi.swa.trufflesqueak.util.ArrayUtils;
 import de.hpi.swa.trufflesqueak.util.ObjectGraphUtils.ObjectTracer;
 
@@ -33,15 +35,27 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
         if (chunk.getSqueakClass().isBlockClosureClass()) {
             setIsABlockClosure();
         }
-        outerContext = (ContextObject) chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
-        final Object startPCOrMethod = chunk.getPointer(BLOCK_CLOSURE.START_PC_OR_METHOD);
-        numArgs = (int) (long) chunk.getPointer(BLOCK_CLOSURE.ARGUMENT_COUNT);
-        if (startPCOrMethod instanceof final CompiledCodeObject code) {
+
+        final Object startPCOrMethodOrOuterContext = chunk.getPointer(BLOCK_CLOSURE.START_PC_OR_METHOD);
+        if (startPCOrMethodOrOuterContext instanceof final CompiledCodeObject code) {
+            /* Squeak FullBlockClosure [outerContext, method, numArgs, receiver, copiedValues...] */
+            outerContext = (ContextObject) chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
+            numArgs = (int) (long) chunk.getPointer(BLOCK_CLOSURE.ARGUMENT_COUNT);
             block = code;
             receiver = chunk.getPointer(BLOCK_CLOSURE.FULL_RECEIVER);
             copiedValues = chunk.getPointers(BLOCK_CLOSURE.FULL_FIRST_COPIED_VALUE);
+        } else if (chunk.getPointer(ObjectLayouts.PHARO_BLOCK_CLOSURE.METHOD) instanceof final CompiledCodeObject code) {
+            /* Pharo FullBlockClosure [receiver, outerContext, method, numArgs, copiedValues...] */
+            receiver = chunk.getPointer(ObjectLayouts.PHARO_BLOCK_CLOSURE.RECEIVER);
+            outerContext = (ContextObject) chunk.getPointer(ObjectLayouts.PHARO_BLOCK_CLOSURE.OUTER_CONTEXT);
+            block = code;
+            numArgs = (int) (long) chunk.getPointer(ObjectLayouts.PHARO_BLOCK_CLOSURE.ARGUMENT_COUNT);
+            copiedValues = chunk.getPointers(ObjectLayouts.PHARO_BLOCK_CLOSURE.FIRST_COPIED_VALUE);
         } else {
-            receiver = chunk.getChunk(BLOCK_CLOSURE.OUTER_CONTEXT).getPointer(CONTEXT.RECEIVER);
+            /* Squeak BlockClosure [outerContext, startpc, numArgs, copiedValues...] */
+            outerContext = (ContextObject) chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
+            numArgs = (int) (long) chunk.getPointer(BLOCK_CLOSURE.ARGUMENT_COUNT);
+            receiver = chunk.getChunk(BLOCK_CLOSURE.OUTER_CONTEXT).getPointer(ObjectLayouts.CONTEXT.RECEIVER);
             copiedValues = chunk.getPointers(BLOCK_CLOSURE.FIRST_COPIED_VALUE);
         }
     }
@@ -250,6 +264,7 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
 
     @Override
     public void pointersBecomeOneWay(final UnmodifiableEconomicMap<Object, Object> fromToMap) {
+        super.pointersBecomeOneWay(fromToMap);
         if (receiver != null) {
             final Object toReceiver = fromToMap.get(receiver);
             if (toReceiver != null) {
@@ -286,15 +301,23 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
         if (!writeHeader(writer)) {
             throw SqueakException.create("BlockClosureObject must have slots:", this);
         }
-        writer.writeObject(getOuterContext());
-        if (isAFullBlockClosure()) {
-            assert block != null || receiver != null;
+        final SqueakImageContext image = getSqueakClass().getImage();
+        if (isAFullBlockClosure() && image.isPharo()) {
+            writer.writeObject(receiver);
+            writer.writeObject(getOuterContext());
             writer.writeObject(block);
             writer.writeSmallInteger(getNumArgs());
-            writer.writeObject(receiver);
         } else {
-            writer.writeSmallInteger(getStartPC());
-            writer.writeSmallInteger(getNumArgs());
+            writer.writeObject(getOuterContext());
+            if (isAFullBlockClosure()) {
+                assert block != null || receiver != null;
+                writer.writeObject(block);
+                writer.writeSmallInteger(getNumArgs());
+                writer.writeObject(receiver);
+            } else {
+                writer.writeSmallInteger(getStartPC());
+                writer.writeSmallInteger(getNumArgs());
+            }
         }
         writer.writeObjects(getCopiedValues());
     }

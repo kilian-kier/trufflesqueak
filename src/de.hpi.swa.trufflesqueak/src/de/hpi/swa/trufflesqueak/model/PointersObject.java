@@ -107,7 +107,7 @@ public final class PointersObject extends AbstractPointersObject {
 
     public PointersObject removeFirstLinkOfList(final AbstractPointersObjectReadNode readNode, final AbstractPointersObjectWriteNode writeNode) {
         // Remove the first process from the given linked list.
-        final PointersObject first = readNode.executePointers(this, LINKED_LIST.FIRST_LINK);
+        final PointersObject first = (PointersObject) readNode.execute(this, LINKED_LIST.FIRST_LINK);
         final Object last = readNode.execute(this, LINKED_LIST.LAST_LINK);
         if (first == last) {
             writeNode.executeNil(this, LINKED_LIST.FIRST_LINK);
@@ -140,8 +140,11 @@ public final class PointersObject extends AbstractPointersObject {
         if (!isNotForwarded()) {
             return "forward to " + resolveForwardingPointer().toString();
         }
-        final AbstractPointersObjectReadNode readNode = AbstractPointersObjectReadNode.getUncached();
         final ClassObject classObject = getSqueakClass();
+        if (classObject == null) {
+            return super.toString();
+        }
+        final AbstractPointersObjectReadNode readNode = AbstractPointersObjectReadNode.getUncached();
         /*
          * This may be accessed from outside a context (when Truffle accesses sources), so we cannot
          * look up the context here.
