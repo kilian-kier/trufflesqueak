@@ -367,10 +367,12 @@ public final class DecoderV3PlusClosures extends AbstractDecoder {
     }
 
     private static int jumpAndResetStackAfterBranchOrReturn(final byte[] joins, final int pc, final int sp, final int delta) {
-        if (delta < 0) {
-            assert Byte.toUnsignedInt(joins[pc + delta]) == sp : "bad join";
-        } else {
-            joins[pc + delta] = (byte) sp;
+        if (pc + delta < joins.length) {
+            if (delta < 0) {
+                assert Byte.toUnsignedInt(joins[pc + delta]) == sp : "bad join";
+            } else {
+                joins[pc + delta] = (byte) sp;
+            }
         }
         return resetStackAfterBranchOrReturn(joins, pc, sp);
     }
