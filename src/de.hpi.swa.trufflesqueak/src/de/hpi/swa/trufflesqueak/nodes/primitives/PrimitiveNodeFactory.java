@@ -25,6 +25,7 @@ import de.hpi.swa.trufflesqueak.nodes.plugins.BitBltPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.CroquetPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.DSAPrims;
 import de.hpi.swa.trufflesqueak.nodes.plugins.DropPlugin;
+import de.hpi.swa.trufflesqueak.nodes.plugins.FileAttributesPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.FilePlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.Float64ArrayPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.FloatArrayPlugin;
@@ -38,6 +39,7 @@ import de.hpi.swa.trufflesqueak.nodes.plugins.PolyglotPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SecurityPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SoundCodecPrims;
 import de.hpi.swa.trufflesqueak.nodes.plugins.SqueakFFIPrims;
+import de.hpi.swa.trufflesqueak.nodes.plugins.ThreadedFFIPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.TruffleSqueakPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.UUIDPlugin;
 import de.hpi.swa.trufflesqueak.nodes.plugins.UnixOSProcessPlugin;
@@ -91,6 +93,7 @@ public final class PrimitiveNodeFactory {
                         new CroquetPlugin(),
                         new DropPlugin(),
                         new DSAPrims(),
+                        new FileAttributesPlugin(),
                         new FilePlugin(),
                         new FloatArrayPlugin(),
                         new Float64ArrayPlugin(),
@@ -106,6 +109,7 @@ public final class PrimitiveNodeFactory {
                         new SocketPlugin(),
                         new SoundCodecPrims(),
                         new SqueakFFIPrims(),
+                        new ThreadedFFIPlugin(),
                         new UUIDPlugin(),
                         new ZipPlugin(),
                         OS.isWindows() ? new Win32OSProcessPlugin() : new UnixOSProcessPlugin()};
@@ -176,7 +180,15 @@ public final class PrimitiveNodeFactory {
         if (values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX] == NilObject.SINGLETON) {
             return null;
         }
-        final String moduleName = values[NAMED_PRIMITIVE_MODULE_NAME_INDEX] instanceof final NativeObject m ? m.asStringUnsafe() : NULL_MODULE_NAME;
+        final String moduleName;
+        final boolean moduleNameIsNil;
+        if (values[NAMED_PRIMITIVE_MODULE_NAME_INDEX] instanceof final NativeObject m && !m.asStringUnsafe().isEmpty()) {
+            moduleName = m.asStringUnsafe();
+            moduleNameIsNil = false;
+        } else {
+            moduleName = NULL_MODULE_NAME;
+            moduleNameIsNil = true;
+        }
         final String functionName = ((NativeObject) values[NAMED_PRIMITIVE_FUNCTION_NAME_INDEX]).asStringUnsafe();
 
         /* Check for singleton plugin primitive. */
@@ -188,9 +200,24 @@ public final class PrimitiveNodeFactory {
         }
 
         /* Check for normal plugin primitive. */
-        final NodeFactory<? extends AbstractPrimitiveNode> nodeFactory = PLUGIN_MAP.get(moduleName, EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
+        NodeFactory<? extends AbstractPrimitiveNode> nodeFactory = PLUGIN_MAP.get(moduleName, EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
         if (nodeFactory != null) {
             return createNode(nodeFactory, numReceiverAndArguments);
+        }
+
+        /*
+         * When the module name is nil/empty (mapped to NullPlugin), search all plugins.
+         * This matches the original Squeak VM behavior where module-less primitives are
+         * resolved across all loaded plugins. Pharo's TFFI uses this for primitives like
+         * primitiveLoadSymbolFromModule and primitiveFFIAllocate.
+         */
+        if (moduleNameIsNil) {
+            for (final String pluginName : PLUGIN_MAP.getKeys()) {
+                nodeFactory = PLUGIN_MAP.get(pluginName, EconomicMap.emptyMap()).get(functionName, EconomicMap.emptyMap()).get(numReceiverAndArguments);
+                if (nodeFactory != null) {
+                    return createNode(nodeFactory, numReceiverAndArguments);
+                }
+            }
         }
 
         /* Check for external plugin primitive. */

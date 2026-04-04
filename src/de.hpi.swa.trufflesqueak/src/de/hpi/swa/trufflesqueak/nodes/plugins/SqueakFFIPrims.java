@@ -56,7 +56,9 @@ import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive1WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive2WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive3WithFallback;
+import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive4;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive4WithFallback;
+import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive5WithFallback;
 import de.hpi.swa.trufflesqueak.nodes.primitives.SqueakPrimitive;
 import de.hpi.swa.trufflesqueak.nodes.primitives.impl.MiscellaneousPrimitives.AbstractPrimCalloutToFFINode;
 import de.hpi.swa.trufflesqueak.util.LogUtils;
@@ -285,22 +287,52 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(names = "primitiveLoadSymbolFromModule")
     protected abstract static class PrimLoadSymbolFromModuleNode extends AbstractFFIPrimitiveNode implements Primitive2WithFallback {
+        /**
+         * Handle nil module: return a null ExternalAddress. This is needed for Pharo's
+         * TFFIBackend>>isAvailable check which calls primitiveLoadSymbolFromModule with nil module.
+         */
+        @Specialization(guards = "moduleSymbol.isByteType()")
+        protected static final NativeObject doLoadSymbolNilModule(@SuppressWarnings("unused") final Object receiver, final NativeObject moduleSymbol,
+                        @SuppressWarnings("unused") final NilObject module,
+                        @Bind final SqueakImageContext image) {
+            return NativeObject.newNativeBytes((ClassObject) image.getExternalAddressClass(),
+                            new byte[]{0, 0, 0, 0, 0, 0, 0, 0});
+        }
+
         @Specialization(guards = {"moduleSymbol.isByteType()", "module.isByteType()"})
         protected static final NativeObject doLoadSymbol(final ClassObject receiver, final NativeObject moduleSymbol, final NativeObject module,
                         @Bind final SqueakImageContext image,
                         @CachedLibrary(limit = "2") final InteropLibrary lib) {
-            final String moduleSymbolName = moduleSymbol.asStringUnsafe();
-            final String moduleName = module.asStringUnsafe();
-            final CallTarget target = image.env.parseInternal(generateNFILoadSource(image, moduleName));
+            return loadSymbolImpl(moduleSymbol.asStringUnsafe(), module.asStringUnsafe(), receiver, image, lib);
+        }
+
+        /** Handle non-ClassObject receiver (e.g., TFFIBackend instance calling primLoadSymbol:module:). */
+        @Specialization(guards = {"moduleSymbol.isByteType()", "module.isByteType()", "!isClassObject(receiver)"})
+        protected static final NativeObject doLoadSymbolFromBackend(@SuppressWarnings("unused") final Object receiver, final NativeObject moduleSymbol, final NativeObject module,
+                        @Bind final SqueakImageContext image,
+                        @CachedLibrary(limit = "2") final InteropLibrary lib) {
+            return loadSymbolImpl(moduleSymbol.asStringUnsafe(), module.asStringUnsafe(),
+                            (ClassObject) image.getExternalAddressClass(), image, lib);
+        }
+
+        protected static boolean isClassObject(final Object obj) {
+            return obj instanceof ClassObject;
+        }
+
+        @TruffleBoundary
+        private static NativeObject loadSymbolImpl(final String symbolName, final String moduleName,
+                        final ClassObject externalAddressClass, final SqueakImageContext image, final InteropLibrary lib) {
+            final String libPath = ThreadedFFIPlugin.resolveLibraryPath(image, moduleName);
+            final Source nfiSource = Source.newBuilder("nfi", String.format("load \"%s\"", libPath), "native").build();
             final Object library;
             try {
-                library = target.call();
+                library = image.env.parseInternal(nfiSource).call();
             } catch (final Throwable e) {
                 throw PrimitiveFailed.andTransferToInterpreter();
             }
             final Object symbol;
             try {
-                symbol = lib.readMember(library, moduleSymbolName);
+                symbol = lib.readMember(library, symbolName);
             } catch (UnsupportedMessageException | UnknownIdentifierException e) {
                 throw PrimitiveFailed.andTransferToInterpreter();
             }
@@ -310,14 +342,9 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
             } catch (final UnsupportedMessageException e) {
                 CompilerDirectives.transferToInterpreter();
                 LogUtils.MAIN.warning(e.toString());
-                return newExternalAddress(receiver, 0L);
+                return newExternalAddress(externalAddressClass, 0L);
             }
-            return newExternalAddress(receiver, pointer);
-        }
-
-        @TruffleBoundary
-        private static Source generateNFILoadSource(final SqueakImageContext image, final String moduleName) {
-            return Source.newBuilder("nfi", String.format("load \"%s\"", getPathOrFail(image, moduleName)), "native").build();
+            return newExternalAddress(externalAddressClass, pointer);
         }
 
         private static NativeObject newExternalAddress(final ClassObject externalAddressClass, final long pointer) {
@@ -417,6 +444,78 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
                         @Bind final Node node,
                         @Cached final InlinedConditionProfile positiveProfile) {
             return PrimUnsignedInt64AtNode.unsignedInt64At(image, byteArray, byteOffsetLong, positiveProfile, node);
+        }
+    }
+
+    /**
+     * TFFIBackend variant of primitiveFFIIntegerAt with extra anObject parameter.
+     * Called as: TFFIBackend>>integerOfObject:at:size:signed: (receiver + 4 args = 5 total).
+     */
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFFIIntegerAt")
+    protected abstract static class PrimFFIIntegerAtFromBackendNode extends AbstractPrimitiveNode implements Primitive4 {
+        @Specialization(guards = {"byteArray.isByteType()", "byteOffsetLong > 0", "byteSize > 0"})
+        @TruffleBoundary
+        protected static final Object doAt(@SuppressWarnings("unused") final Object receiver, final NativeObject byteArray,
+                        final long byteOffsetLong, final long byteSize, final boolean isSigned) {
+            final int offset = (int) byteOffsetLong - 1;
+            final byte[] bytes = byteArray.getByteStorage();
+            return switch ((int) byteSize) {
+                case 1 -> isSigned ? (long) bytes[offset] : (long) (bytes[offset] & 0xFF);
+                case 2 -> {
+                    final int val = (bytes[offset] & 0xFF) | ((bytes[offset + 1] & 0xFF) << 8);
+                    yield isSigned ? (long) (short) val : (long) val;
+                }
+                case 4 -> {
+                    final int val = (bytes[offset] & 0xFF) | ((bytes[offset + 1] & 0xFF) << 8) |
+                                    ((bytes[offset + 2] & 0xFF) << 16) | ((bytes[offset + 3] & 0xFF) << 24);
+                    yield isSigned ? (long) val : (long) val & 0xFFFFFFFFL;
+                }
+                case 8 -> {
+                    long val = 0;
+                    for (int i = 7; i >= 0; i--) {
+                        val = (val << 8) | (bytes[offset + i] & 0xFFL);
+                    }
+                    yield val;
+                }
+                default -> throw PrimitiveFailed.GENERIC_ERROR;
+            };
+        }
+    }
+
+    /**
+     * TFFIBackend variant of primitiveFFIIntegerAtPut with extra anObject parameter.
+     * Called as: TFFIBackend>>integerOfObject:at:put:size:signed: (receiver + 5 args = 6 total).
+     */
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFFIIntegerAtPut")
+    protected abstract static class PrimFFIIntegerAtPutFromBackendNode extends AbstractPrimitiveNode implements Primitive5WithFallback {
+        @Specialization(guards = {"byteArray.isByteType()", "byteOffsetLong > 0", "byteSize > 0"})
+        @TruffleBoundary
+        protected static final long doAtPut(@SuppressWarnings("unused") final Object receiver, final NativeObject byteArray,
+                        final long byteOffsetLong, final long value, final long byteSize, @SuppressWarnings("unused") final boolean isSigned) {
+            final int offset = (int) byteOffsetLong - 1;
+            final byte[] bytes = byteArray.getByteStorage();
+            switch ((int) byteSize) {
+                case 1 -> bytes[offset] = (byte) value;
+                case 2 -> {
+                    bytes[offset] = (byte) value;
+                    bytes[offset + 1] = (byte) (value >> 8);
+                }
+                case 4 -> {
+                    bytes[offset] = (byte) value;
+                    bytes[offset + 1] = (byte) (value >> 8);
+                    bytes[offset + 2] = (byte) (value >> 16);
+                    bytes[offset + 3] = (byte) (value >> 24);
+                }
+                case 8 -> {
+                    for (int i = 0; i < 8; i++) {
+                        bytes[offset + i] = (byte) (value >> (i * 8));
+                    }
+                }
+                default -> throw PrimitiveFailed.GENERIC_ERROR;
+            }
+            return value;
         }
     }
 

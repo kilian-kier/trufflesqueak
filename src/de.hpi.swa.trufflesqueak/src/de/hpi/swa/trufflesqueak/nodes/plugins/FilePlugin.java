@@ -612,6 +612,18 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
     }
 
     @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFileDescriptorType")
+    protected abstract static class PrimFileDescriptorTypeNode extends AbstractFilePluginPrimitiveNode implements Primitive1WithFallback {
+        @Specialization
+        protected static final long doType(@SuppressWarnings("unused") final Object receiver, final long fdNum) {
+            if (fdNum >= 0 && fdNum <= 2) {
+                return 2; // pipe (stdin/stdout/stderr are always available via polyglot context)
+            }
+            return -1; // error for unknown file descriptors
+        }
+    }
+
+    @GenerateNodeFactory
     @SqueakPrimitive(names = "primitiveFileTruncate")
     protected abstract static class PrimFileTruncateNode extends AbstractFilePluginPrimitiveNode implements Primitive2WithFallback {
         @Specialization(guards = "!isStdioFileDescriptor(fd)")
@@ -749,7 +761,25 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
             if (!file.exists()) {
                 throw PrimitiveFailed.andTransferToInterpreter();
             }
-            env.setCurrentWorkingDirectory(file);
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFileMasks")
+    protected abstract static class PrimFileMasksNode extends AbstractPrimitiveNode implements Primitive0 {
+        @Specialization
+        protected final Object doMasks(@SuppressWarnings("unused") final Object receiver) {
+            final SqueakImageContext image = getContext();
+            return image.asArrayOfObjects(
+                    0170000L, // S_IFMT
+                    0140000L, // S_IFSOCK
+                    0120000L, // S_IFLNK
+                    0100000L, // S_IFREG
+                    0060000L, // S_IFBLK
+                    0040000L, // S_IFDIR
+                    0020000L, // S_IFCHR
+                    0010000L // S_IFIFO
+            );
         }
     }
 }
