@@ -614,7 +614,11 @@ public final class MiscellaneousPrimitives extends AbstractPrimitiveFactoryHolde
     public abstract static class PrimCompareString2Node extends AbstractPrimCompareStringNode implements Primitive1WithFallback {
         @Specialization(guards = {"receiver.isByteType()", "other.isByteType()"})
         protected static final long doCompareAsciiOrder(final NativeObject receiver, final NativeObject other) {
-            return compareAsciiOrder(receiver, other) - 2L;
+            /*
+             * Pharo's compareWith: (primitive 158 with 1 arg) returns negative/0/positive.
+             * compareAsciiOrder already returns -1/0/1, so no offset needed.
+             */
+            return compareAsciiOrder(receiver, other);
         }
     }
 

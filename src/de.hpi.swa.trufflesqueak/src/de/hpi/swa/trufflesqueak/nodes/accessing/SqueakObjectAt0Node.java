@@ -20,9 +20,11 @@ import de.hpi.swa.trufflesqueak.model.BlockClosureObject;
 import de.hpi.swa.trufflesqueak.model.ClassObject;
 import de.hpi.swa.trufflesqueak.model.CompiledCodeObject;
 import de.hpi.swa.trufflesqueak.model.ContextObject;
+import de.hpi.swa.trufflesqueak.model.EmptyObject;
 import de.hpi.swa.trufflesqueak.model.EphemeronObject;
 import de.hpi.swa.trufflesqueak.model.FloatObject;
 import de.hpi.swa.trufflesqueak.model.NativeObject;
+import de.hpi.swa.trufflesqueak.model.NilObject;
 import de.hpi.swa.trufflesqueak.model.PointersObject;
 import de.hpi.swa.trufflesqueak.model.VariablePointersObject;
 import de.hpi.swa.trufflesqueak.model.WeakVariablePointersObject;
@@ -104,6 +106,11 @@ public abstract class SqueakObjectAt0Node extends AbstractNode {
     protected static final Object doEphemeron(final EphemeronObject obj, final long index,
                     @Shared("readNode") @Cached(inline = false) final AbstractPointersObjectReadNode readNode) {
         return readNode.execute(obj, index);
+    }
+
+    @Specialization
+    protected static final NilObject doEmpty(@SuppressWarnings("unused") final EmptyObject obj, @SuppressWarnings("unused") final long index) {
+        return NilObject.SINGLETON;
     }
 
     @Specialization

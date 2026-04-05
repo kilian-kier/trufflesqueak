@@ -20,6 +20,7 @@ import com.oracle.truffle.api.nodes.DirectCallNode;
 import com.oracle.truffle.api.nodes.IndirectCallNode;
 import com.oracle.truffle.api.nodes.Node;
 
+import de.hpi.swa.trufflesqueak.model.AbstractPointersObject;
 import de.hpi.swa.trufflesqueak.model.ArrayObject;
 import de.hpi.swa.trufflesqueak.model.BlockClosureObject;
 import de.hpi.swa.trufflesqueak.model.CompiledCodeObject;
@@ -39,6 +40,8 @@ import de.hpi.swa.trufflesqueak.nodes.primitives.SqueakPrimitive;
 import de.hpi.swa.trufflesqueak.util.FrameAccess;
 
 public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder {
+    /** Index of the 'literal' instVar in Pharo's CleanBlockClosure/ConstantBlockClosure. */
+    private static final int CONSTANT_BLOCK_CLOSURE_LITERAL_INDEX = 3;
 
     public abstract static class AbstractClosurePrimitiveNode extends AbstractPrimitiveWithFrameNode {
         @Child protected GetOrCreateContextWithoutFrameNode getOrCreateContextWithoutFrameNode = GetOrCreateContextWithoutFrameNode.create();
@@ -104,6 +107,19 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
                         @Cached final IndirectCallNode indirectCallNode) {
             final CompiledCodeObject block = closure.getCompiledBlock();
             return indirectCallNode.call(block.getCallTarget(), FrameAccess.newClosureArgumentsTemplate(closure, getOrCreateContextWithoutFrameNode.execute(frame), 0));
+        }
+
+        /**
+         * Pharo's ConstantBlockClosure is not a BlockClosureObject in TruffleSqueak.
+         * Its value/valueNoContextSwitch should return the literal field (instVar index 3).
+         */
+        @Specialization(guards = "isConstantBlockClosure(closure)")
+        protected static final Object doConstantBlockClosure(@SuppressWarnings("unused") final VirtualFrame frame, final AbstractPointersObject closure) {
+            return closure.instVarAt0Slow(CONSTANT_BLOCK_CLOSURE_LITERAL_INDEX);
+        }
+
+        protected static boolean isConstantBlockClosure(final AbstractPointersObject obj) {
+            return obj.getSqueakClass().getClassName().startsWith("ConstantBlockClosure");
         }
     }
 
@@ -256,6 +272,19 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
                         @Bind("closure.getCompiledBlock()") final CompiledCodeObject block,
                         @Cached final IndirectCallNode indirectCallNode) {
             return indirectCallNode.call(block.getCallTarget(), createFrameArguments(frame, closure));
+        }
+
+        /**
+         * Pharo's ConstantBlockClosure is not a BlockClosureObject in TruffleSqueak.
+         * Its value/valueNoContextSwitch should return the literal field (instVar index 3).
+         */
+        @Specialization(guards = "isConstantBlockClosure(closure)")
+        protected static final Object doConstantBlockClosure(@SuppressWarnings("unused") final VirtualFrame frame, final AbstractPointersObject closure) {
+            return closure.instVarAt0Slow(CONSTANT_BLOCK_CLOSURE_LITERAL_INDEX);
+        }
+
+        protected static boolean isConstantBlockClosure(final AbstractPointersObject obj) {
+            return obj.getSqueakClass().getClassName().startsWith("ConstantBlockClosure");
         }
     }
 

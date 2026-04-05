@@ -556,6 +556,29 @@ public final class StoragePrimitives extends AbstractPrimitiveFactoryHolder {
     }
 
     @GenerateNodeFactory
+    @SqueakPrimitive(indices = 183)
+    protected abstract static class PrimIsPinnedInMemoryNode extends AbstractPrimitiveNode implements Primitive0 {
+        /** In TruffleSqueak, objects never move, so they are effectively always pinned. */
+        @Specialization
+        protected static final boolean doCheck(@SuppressWarnings("unused") final Object receiver) {
+            return BooleanObject.TRUE;
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(indices = 184)
+    protected abstract static class PrimSetPinnedInMemoryNode extends AbstractPrimitiveNode implements Primitive1 {
+        /**
+         * In TruffleSqueak, objects are managed by the JVM GC and never move in the Smalltalk
+         * heap sense, so pinning is a no-op. Always returns false (was not previously pinned).
+         */
+        @Specialization
+        protected static final boolean doPin(@SuppressWarnings("unused") final Object receiver, @SuppressWarnings("unused") final boolean pinned) {
+            return BooleanObject.FALSE;
+        }
+    }
+
+    @GenerateNodeFactory
     @SqueakPrimitive(indices = 248)
     protected abstract static class PrimArrayBecomeOneWayNoCopyHashNode extends AbstractArrayBecomeOneWayPrimitiveNode implements Primitive1WithFallback {
 

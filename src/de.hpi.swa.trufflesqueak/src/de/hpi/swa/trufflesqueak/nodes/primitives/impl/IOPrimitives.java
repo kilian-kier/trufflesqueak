@@ -57,6 +57,7 @@ import de.hpi.swa.trufflesqueak.nodes.accessing.ArrayObjectNodes.ArrayObjectRead
 import de.hpi.swa.trufflesqueak.nodes.accessing.ArrayObjectNodes.ArrayObjectSizeNode;
 import de.hpi.swa.trufflesqueak.nodes.accessing.ArrayObjectNodes.ArrayObjectWriteNode;
 import de.hpi.swa.trufflesqueak.nodes.context.GetOrCreateContextWithFrameNode;
+import de.hpi.swa.trufflesqueak.util.LogUtils;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveFactoryHolder;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode.AbstractPrimitiveWithFrameNode;
@@ -134,7 +135,11 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
                         @Bind final Node node,
                         @Bind final SqueakImageContext image,
                         @Cached(inline = true) final GetOrCreateContextWithFrameNode getOrCreateContextNode) {
-            writeImage(image, getOrCreateContextNode.executeGet(frame, node));
+            try {
+                writeImage(image, getOrCreateContextNode.executeGet(frame, node));
+            } catch (final Exception e) {
+                LogUtils.IMAGE.warning("Failed to write image: " + e.getMessage());
+            }
             /* Return false to signal that the image is not resuming. */
             return BooleanObject.FALSE;
         }
@@ -145,9 +150,12 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
             image.objectGraphUtils.unfollow();
             /* Push true on stack for saved snapshot. */
             thisContext.push(BooleanObject.TRUE);
-            SqueakImageWriter.write(getContext(), thisContext);
-            /* Pop true again. */
-            thisContext.pop();
+            try {
+                SqueakImageWriter.write(getContext(), thisContext);
+            } finally {
+                /* Pop true again, even if write fails. */
+                thisContext.pop();
+            }
         }
     }
 

@@ -318,6 +318,9 @@ public final class FrameAccess {
     }
 
     public static void setSlotValue(final Frame frame, final int slotIndex, final Object value) {
+        if (value != null) {
+            value.getClass(); // Validate object reference before storing
+        }
         frame.setObjectStatic(slotIndex, value);
     }
 
