@@ -6,9 +6,6 @@
  */
 package de.hpi.swa.trufflesqueak.image;
 
-import java.awt.DisplayMode;
-import java.awt.GraphicsEnvironment;
-import java.awt.HeadlessException;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -16,8 +13,8 @@ import java.util.Locale;
 
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
-import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 
+import de.hpi.swa.trufflesqueak.io.SqueakDisplay;
 import de.hpi.swa.trufflesqueak.model.AbstractSqueakObject;
 import de.hpi.swa.trufflesqueak.model.NativeObject;
 import de.hpi.swa.trufflesqueak.model.NilObject;
@@ -208,18 +205,16 @@ public final class SqueakSystemAttributes {
     }
 
     /** Attribute #10003. */
-    @TruffleBoundary
     private NativeObject getGraphicsHardwareDetails() {
         int width = 0;
         int height = 0;
-        try {
-            final DisplayMode dm = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode();
-            width = dm.getWidth();
-            height = dm.getHeight();
-        } catch (final HeadlessException e) {
-            /* Report 0 x 0 in headless mode. */
+        final SqueakDisplay display = image.getDisplay();
+        if (display != null) {
+            final int[] dimensions = display.getPrimaryDisplayDimensions();
+            width = dimensions[0];
+            height = dimensions[1];
         }
-        return asByteString(String.format("Display Information: \n\tPrimary monitor resolution: %s x %s\n", width, height));
+        return asByteString(MiscUtils.format("Display Information: \n\tPrimary monitor resolution: %s x %s\n", width, height));
     }
 
     /**

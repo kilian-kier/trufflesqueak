@@ -492,8 +492,9 @@ public final class MiscellaneousPrimitives extends AbstractPrimitiveFactoryHolde
         @Specialization
         protected final NativeObject getClipboardText(@SuppressWarnings("unused") final Object receiver) {
             final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
-                return image.asByteString(SqueakDisplay.getClipboardData());
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
+                return image.asByteString(display.getClipboardData());
             } else {
                 return image.clipboardTextHeadless;
             }
@@ -506,8 +507,9 @@ public final class MiscellaneousPrimitives extends AbstractPrimitiveFactoryHolde
         @Specialization(guards = "value.isByteType()")
         protected final NativeObject setClipboardText(@SuppressWarnings("unused") final Object receiver, final NativeObject value) {
             final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
-                SqueakDisplay.setClipboardData(value.asStringUnsafe());
+            final SqueakDisplay display = image.getDisplay();
+            if (display != null) {
+                display.setClipboardData(value.asStringUnsafe());
             } else {
                 image.clipboardTextHeadless = value;
             }

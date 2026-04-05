@@ -46,24 +46,12 @@ add-path() {
   echo "$(resolve-path "$1")" >> $GITHUB_PATH
 }
 
-build-graalvm() {
-  local java_version=$1
-  local graalvm_home="$(mx --env trufflesqueak-jar graalvm-home)"
-
-  mx --env trufflesqueak-jar --no-download-progress build --dependencies "GRAALVM_TRUFFLESQUEAK_JAR_JAVA${java_version}"
-
-  add-path "${graalvm_home}/bin"
-  set-env "GRAALVM_HOME" "$(resolve-path "${graalvm_home}")"
-  echo "[${graalvm_home} set as \$GRAALVM_HOME]"
-}
-
 build-standalone() {
   local type=$1
   local component_name="TRUFFLESQUEAK_$(echo $type | tr a-z A-Z)_STANDALONE"
-  local env_name="trufflesqueak-${type}"
 
-  mx --env "${env_name}" --no-download-progress build
-  local standalone_home="$(mx --env "${env_name}" paths --output "${component_name}")"
+  mx --env "${type}" --no-download-progress build
+  local standalone_home="$(mx --env "${type}" paths --output "${component_name}")"
   set-env "STANDALONE_HOME" "$(resolve-path "${standalone_home}")"
   add-path "${standalone_home}/bin"
   echo "[${standalone_home}/bin added to \$PATH]"
@@ -243,7 +231,7 @@ standalone-dirname() {
 }
 
 format-native-image-config() {
-  readonly NI_CONFIG_BASE="${BASE_DIRECTORY}/src/de.hpi.swa.trufflesqueak/src/META-INF/native-image"
+  readonly NI_CONFIG_BASE="${BASE_DIRECTORY}/src/de.hpi.swa.trufflesqueak/src/META-INF/native-image/de.hpi.swa.trufflesqueak/trufflesqueak"
   for f in "${NI_CONFIG_BASE}/"*.json; do
     underscore --in "${f}" --out "${f}" --wrapwidth 80 print
   done

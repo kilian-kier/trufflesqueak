@@ -24,7 +24,6 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.profiles.InlinedBranchProfile;
 import com.oracle.truffle.api.profiles.InlinedConditionProfile;
-import com.oracle.truffle.api.profiles.InlinedExactClassProfile;
 
 import de.hpi.swa.trufflesqueak.exceptions.PrimitiveFailed;
 import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
@@ -78,10 +77,9 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(indices = 91)
     protected abstract static class PrimTestDisplayDepthNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
-
         @Specialization
         protected final boolean doTest(@SuppressWarnings("unused") final Object receiver, final long depth) {
-            if (getContext().hasDisplay()) {
+            if (getContext().getDisplay() != null) {
                 // TODO: support all depths ({1, 2, 4, 8, 16, 32} and negative values)?
                 return BooleanObject.wrap(depth == 32);
             } else {
@@ -95,12 +93,11 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(indices = 93)
     protected abstract static class PrimInputSemaphoreNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
-
         @Specialization
         protected final Object doSet(final Object receiver, final long semaIndex) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
-                image.getDisplay().setInputSemaphoreIndex((int) semaIndex);
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
+                display.setInputSemaphoreIndex((int) semaIndex);
             }
             return receiver;
         }
@@ -112,9 +109,8 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
 
         @Specialization
         protected final PointersObject doGetNext(final PointersObject eventSensor, final ArrayObject targetArray) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
-                final SqueakDisplay display = image.getDisplay();
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
                 final long[] event = display.getNextEvent();
                 targetArray.setStorage(event != null ? event : SqueakIOConstants.NONE_EVENT);
             } else {
@@ -196,12 +192,12 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
         protected final PointersObject doCursor(final PointersObject receiver,
                         @Cached final AbstractPointersObjectReadNode cursorReadNode,
                         @Cached final AbstractPointersObjectReadNode offsetReadNode) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
                 final PointersObject offset = receiver.getFormOffset(cursorReadNode);
                 final int offsetX = Math.abs(offsetReadNode.executeInt(offset, POINT.X));
                 final int offsetY = Math.abs(offsetReadNode.executeInt(offset, POINT.Y));
-                image.getDisplay().setCursor(receiver.getFormBits(cursorReadNode), null, receiver.getFormWidth(cursorReadNode), receiver.getFormHeight(cursorReadNode),
+                display.setCursor(receiver.getFormBits(cursorReadNode), null, receiver.getFormWidth(cursorReadNode), receiver.getFormHeight(cursorReadNode),
                                 receiver.getFormDepth(cursorReadNode), offsetX, offsetY);
             }
             return receiver;
@@ -217,8 +213,8 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
                         @Cached final AbstractPointersObjectReadNode cursorReadNode,
                         @Cached final AbstractPointersObjectReadNode offsetReadNode,
                         @Cached final InlinedConditionProfile depthProfile) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
                 final int[] words = receiver.getFormBits(cursorReadNode);
                 final int depth = receiver.getFormDepth(cursorReadNode);
                 final int height = receiver.getFormHeight(cursorReadNode);
@@ -227,15 +223,12 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
                 final int offsetX = Math.abs(offsetReadNode.executeInt(offset, POINT.X));
                 final int offsetY = Math.abs(offsetReadNode.executeInt(offset, POINT.Y));
                 final int[] mask;
-                final int realDepth;
                 if (depthProfile.profile(node, depth == 1)) {
                     mask = cursorReadNode.executeNative(maskObject, FORM.BITS).getIntStorage();
-                    realDepth = 2;
                 } else {
                     mask = null;
-                    realDepth = depth;
                 }
-                image.getDisplay().setCursor(words, mask, width, height, realDepth, offsetX, offsetY);
+                display.setCursor(words, mask, width, height, depth, offsetX, offsetY);
             }
             return receiver;
         }
@@ -248,9 +241,10 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
         @Specialization(guards = {"receiver.size() >= 4"})
         protected final boolean doDisplay(final PointersObject receiver) {
             final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
+            final SqueakDisplay display = image.getDisplay();
+            if (display != null) {
                 image.setSpecialObject(SPECIAL_OBJECT.THE_DISPLAY, receiver);
-                image.getDisplay().open(receiver);
+                display.open(receiver);
                 return BooleanObject.TRUE;
             } else {
                 return BooleanObject.FALSE;
@@ -748,9 +742,10 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
                         @Cached final AbstractPointersObjectWriteNode writeNode) {
             final long x;
             final long y;
-            if (image.hasDisplay() && image.getDisplay().isVisible()) {
-                x = image.getDisplay().getWindowWidth();
-                y = image.getDisplay().getWindowHeight();
+            final SqueakDisplay display = image.getDisplay();
+            if (display != null && display.isVisible()) {
+                x = display.getWindowWidth();
+                y = display.getWindowHeight();
             } else {
                 x = image.flags.getScreenWidth();
                 y = image.flags.getScreenHeight();
@@ -766,14 +761,11 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(indices = 126)
     protected abstract static class PrimDeferDisplayUpdatesNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
-
         @Specialization
-        protected final Object doDefer(final Object receiver, final boolean flag,
-                        @Bind final Node node,
-                        @Cached final InlinedExactClassProfile displayProfile) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
-                displayProfile.profile(node, image.getDisplay()).setDeferUpdates(flag);
+        protected final Object doDefer(final Object receiver, final boolean flag) {
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
+                display.setDeferUpdates(flag);
             }
             return receiver;
         }
@@ -782,12 +774,11 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(indices = 127)
     protected abstract static class PrimShowDisplayRectNode extends AbstractPrimitiveNode implements Primitive4WithFallback {
-
         @Specialization
         protected final PointersObject doShow(final PointersObject receiver, final long left, final long right, final long top, final long bottom) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay() && left < right && top < bottom) {
-                image.getDisplay().showDisplayRect((int) left, (int) top, (int) right, (int) bottom);
+            final SqueakDisplay display = getContext().getDisplay();
+            if (display != null) {
+                display.updateDisplay((int) left, (int) top, (int) right, (int) bottom);
             }
             return receiver;
         }
@@ -807,15 +798,10 @@ public final class IOPrimitives extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(indices = 140)
     protected abstract static class PrimBeepNode extends AbstractPrimitiveNode implements Primitive0 {
-
         @Specialization
-        protected final Object doBeep(final Object receiver) {
-            final SqueakImageContext image = getContext();
-            if (image.hasDisplay()) {
-                SqueakDisplay.beep();
-            } else {
-                printBeepCharacter(image);
-            }
+        protected static final Object doBeep(final Object receiver,
+                        @Bind final SqueakImageContext image) {
+            printBeepCharacter(image);
             return receiver;
         }
 
