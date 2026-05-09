@@ -90,8 +90,18 @@ public abstract class AbstractDecoder {
         return lineNumber;
     }
 
-    public static final int trailerPosition(final CompiledCodeObject code) {
-        return code.isCompiledBlock() ? code.getBytes().length : trailerPosition(code.getBytes());
+    public static int trailerPosition(final CompiledCodeObject code) {
+        if (code.getSqueakClass().getImage().isPharo()) {
+            if (code.isCompiledBlock()) {
+                return code.getBytes().length;
+            } else {
+                assert code.isCompiledMethod();
+                assert code.getBytes().length >= 5 : "Pharo compiled method bytecode must be at least 5 bytes long.";
+                return code.getBytes().length - 5;
+            }
+        } else {
+            return code.isCompiledBlock() ? code.getBytes().length : trailerPosition(code.getBytes());
+        }
     }
 
     private static int trailerPosition(final byte[] bytecode) {

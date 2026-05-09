@@ -250,4 +250,20 @@ public final class SqueakImageChunk {
     public int getWordSize() {
         return bytes.length / SqueakImageConstants.WORD_SIZE;
     }
+
+    public void becomeCompiledMethodClass() {
+        object = getImage().compiledMethodClass;
+    }
+
+    public void becomeProcessClass() {
+        object = getImage().getProcessClass();
+    }
+
+    public void becomeFullBlockClosureClass() {
+        object = getImage().getFullBlockClosureClass();
+    }
+
+    public void becomeBlockClosureClass() {
+        object = getImage().getBlockClosureClass();
+    }
 }

@@ -216,6 +216,11 @@ public final class ClassObject extends AbstractSqueakObjectWithClassAndHash {
         return this == image.getBlockClosureClass();
     }
 
+    public boolean isFullBlockClosureClass() {
+        CompilerAsserts.neverPartOfCompilation();
+        return this == image.getFullBlockClosureClass();
+    }
+
     public boolean isCompiledMethodClass() {
         CompilerAsserts.neverPartOfCompilation();
         return this == image.compiledMethodClass;

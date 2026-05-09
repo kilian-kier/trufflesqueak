@@ -422,20 +422,34 @@ public final class SqueakImageReader {
                     }
                     final String name = instanceClassObject.getClassName();
                     switch (name) {
+                        case "FullBlockClosure" -> {
+                            if (image.isFullBlockClosureClassUninitialized()) {
+                                image.initializeFullBlockClosureClass();
+                                image.getFullBlockClosureClass().fillin(classInstance);
+                            }
+                            classInstance.becomeFullBlockClosureClass();
+                        }
                         case "BlockClosure" -> {
-                            if (image.getBlockClosureClass() == null) {
+                            if (image.isBlockClosureClassUninitialized()) {
                                 image.initializeBlockClosureClass();
                                 image.getBlockClosureClass().fillin(classInstance);
                             }
+                            classInstance.becomeBlockClosureClass();
                         }
-                        case "CompiledMethod" -> image.compiledMethodClass.fillin(classInstance);
+                        case "CompiledMethod" -> {
+                            image.compiledMethodClass.fillin(classInstance);
+                            classInstance.becomeCompiledMethodClass();
+                        }
                         case "Process" -> {
-                            if (image.getProcessClass() == null) {
+                            if (image.isProcessClassUninitialized()) {
                                 image.initializeProcessClass();
                                 image.getProcessClass().fillin(classInstance);
                             }
+                            classInstance.becomeProcessClass();
                         }
-                        case "CleanBlockClosure" -> image.setIsPharo();
+                        case "PharoSyntaxTutorial" -> {
+                            image.setIsPharo();
+                        }
                     }
                 }
             }

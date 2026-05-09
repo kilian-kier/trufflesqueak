@@ -743,6 +743,10 @@ public final class SqueakImageContext {
         return doubleWordArrayClass = new ClassObject(this);
     }
 
+    public boolean isFullBlockClosureClassUninitialized() {
+        return fullBlockClosureClass == null;
+    }
+
     public ClassObject getFullBlockClosureClass() {
         assert fullBlockClosureClass != null;
         return fullBlockClosureClass;
@@ -753,6 +757,10 @@ public final class SqueakImageContext {
         return fullBlockClosureClass = new ClassObject(this);
     }
 
+    public boolean isProcessClassUninitialized() {
+        return processClass == null;
+    }
+
     public ClassObject getProcessClass() {
         assert processClass != null;
         return processClass;
@@ -761,6 +769,10 @@ public final class SqueakImageContext {
     public ClassObject initializeProcessClass() {
         assert processClass == null;
         return processClass = new ClassObject(this);
+    }
+
+    public boolean isBlockClosureClassUninitialized() {
+        return blockClosureClass == null;
     }
 
     public ClassObject getBlockClosureClass() {
