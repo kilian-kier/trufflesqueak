@@ -102,6 +102,8 @@ public final class SqueakSystemAttributes {
             default -> {
                 if (index >= 2 && index <= 1000) {
                     yield getCMDArgument(index - 2);
+                } else if (index == -1 && image.options.isHeadless()) {
+                    yield asByteString("--headless");
                 } else {
                     yield NilObject.SINGLETON;
                 }
