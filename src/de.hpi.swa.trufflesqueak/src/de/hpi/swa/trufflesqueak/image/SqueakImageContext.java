@@ -112,12 +112,12 @@ public final class SqueakImageContext {
     public final ArrayObject specialSelectors = new ArrayObject();
     public final NativeObject mustBeBooleanSelector = new NativeObject();
     public final ClassObject byteArrayClass = new ClassObject(this);
-    public final ClassObject processClass = new ClassObject(this);
+    @CompilationFinal private ClassObject processClass;
     @CompilationFinal private ClassObject doubleByteArrayClass;
     @CompilationFinal private ClassObject wordArrayClass;
     @CompilationFinal private ClassObject doubleWordArrayClass;
     public final NativeObject cannotInterpretSelector = new NativeObject(); // TODO: use selector
-    public final ClassObject blockClosureClass = new ClassObject(this);
+    @CompilationFinal private ClassObject blockClosureClass;
     @CompilationFinal private ClassObject fullBlockClosureClass;
     public final ClassObject largeNegativeIntegerClass = new ClassObject(this);
     @CompilationFinal private ClassObject externalAddressClass;
@@ -215,6 +215,9 @@ public final class SqueakImageContext {
     public String[] dropPluginFileList = ArrayUtils.EMPTY_STRINGS_ARRAY;
     public final JPEGReader jpegReader = new JPEGReader();
     public final Zip zip = new Zip();
+
+    /* Pharo support */
+    private boolean isPharo;
 
     public SqueakImageContext(final SqueakLanguage squeakLanguage, final SqueakLanguage.Env environment) {
         language = squeakLanguage;
@@ -750,6 +753,26 @@ public final class SqueakImageContext {
         return fullBlockClosureClass = new ClassObject(this);
     }
 
+    public ClassObject getProcessClass() {
+        assert processClass != null;
+        return processClass;
+    }
+
+    public ClassObject initializeProcessClass() {
+        assert processClass == null;
+        return processClass = new ClassObject(this);
+    }
+
+    public ClassObject getBlockClosureClass() {
+        assert blockClosureClass != null;
+        return blockClosureClass;
+    }
+
+    public ClassObject initializeBlockClosureClass() {
+        assert blockClosureClass == null;
+        return blockClosureClass = new ClassObject(this);
+    }
+
     public AbstractSqueakObject getExternalAddressClass() {
         return NilObject.nullToNil(externalAddressClass);
     }
@@ -1264,5 +1287,14 @@ public final class SqueakImageContext {
             }
             return asByteSymbol(libraryPrefix + messageCapitalized + suffix);
         });
+    }
+
+    public boolean isPharo() {
+        return isPharo;
+    }
+
+    public void setIsPharo() {
+        isPharo = true;
+        LogUtils.IMAGE.fine(() -> "Pharo detected");
     }
 }

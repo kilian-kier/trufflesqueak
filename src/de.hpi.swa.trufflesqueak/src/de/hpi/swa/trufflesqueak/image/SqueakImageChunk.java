@@ -55,8 +55,10 @@ public final class SqueakImageChunk {
             return new ClassObject(this);
         } else if (object == NilObject.SINGLETON) {
             return null;
+        } else if (object instanceof final ClassObject classObject) {
+            return classObject;
         } else {
-            return (ClassObject) object;
+            return null;
         }
     }
 

@@ -93,7 +93,7 @@ public abstract class SqueakObjectClassNode extends AbstractNode {
 
     @Specialization(guards = "value.isABlockClosure()")
     protected final ClassObject doBlockClosure(@SuppressWarnings("unused") final BlockClosureObject value) {
-        return getContext().blockClosureClass;
+        return getContext().getBlockClosureClass();
     }
 
     @Specialization

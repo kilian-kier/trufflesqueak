@@ -1,0 +1,14 @@
+*.java          text diff=java
+*.class         binary
+*.dll           binary
+*.so            binary
+*.jar           binary
+
+*.py            text eol=lf
+*.md            text eol=lf
+*.txt           text eol=lf
+*.sh            text eol=lf
+*.bash          text eol=lf
+*.bat           text eol=crlf
+
+mx.*            text eol=lf

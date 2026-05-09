@@ -281,7 +281,9 @@ public final class SqueakImageReader {
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_POINT, image.pointClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_LARGE_POSITIVE_INTEGER, image.largePositiveIntegerClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_MESSAGE, image.messageClass);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_COMPILED_METHOD, image.compiledMethodClass);
+        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_COMPILED_METHOD).isNil()) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_COMPILED_METHOD, image.compiledMethodClass);
+        }
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_SEMAPHORE, image.semaphoreClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_CHARACTER, image.characterClass);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_DOES_NOT_UNDERSTAND, image.doesNotUnderstand);
@@ -289,7 +291,9 @@ public final class SqueakImageReader {
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SPECIAL_SELECTORS, image.specialSelectors);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_MUST_BE_BOOLEAN, image.mustBeBooleanSelector);
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BYTE_ARRAY, image.byteArrayClass);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_PROCESS, image.processClass);
+        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_PROCESS).isNil()) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_PROCESS, image.initializeProcessClass());
+        }
         if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_BYTE_ARRAY).isNil()) {
             setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_BYTE_ARRAY, image.initializeDoubleByteArrayClass());
         }
@@ -300,7 +304,9 @@ public final class SqueakImageReader {
             setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_DOUBLE_WORD_ARRAY, image.initializeDoubleWordArrayClass());
         }
         setPrebuiltObject(specialChunk, SPECIAL_OBJECT.SELECTOR_CANNOT_INTERPRET, image.cannotInterpretSelector);
-        setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BLOCK_CLOSURE, image.blockClosureClass);
+        if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_BLOCK_CLOSURE).isNil()) {
+            setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_BLOCK_CLOSURE, image.initializeBlockClosureClass());
+        }
         if (!specialObjectChunk(specialChunk, SPECIAL_OBJECT.CLASS_FULL_BLOCK_CLOSURE).isNil()) {
             setPrebuiltObject(specialChunk, SPECIAL_OBJECT.CLASS_FULL_BLOCK_CLOSURE, image.initializeFullBlockClosureClass());
         }
@@ -398,15 +404,38 @@ public final class SqueakImageReader {
                 final long potentialClassPtr = classTablePage.getWord(i);
                 assert potentialClassPtr != 0;
                 final SqueakImageChunk classChunk = chunkMap.get(potentialClassPtr);
+                final ClassObject classObject = classChunk.asClassObject();
+                if (classObject == null) {
+                    continue;
+                }
+                classObject.fillin(classChunk);
                 if (classChunk.getSqueakClass() == image.metaClass) {
                     assert classChunk.getWordSize() == METACLASS.INST_SIZE;
                     final SqueakImageChunk classInstance = chunkMap.get(classChunk.getWord(METACLASS.THIS_CLASS));
-                    final ClassObject classObject = classInstance.asClassObject();
-                    assert classObject != null;
-                    classObject.fillin(classInstance);
-                    if (inst.contains(classObject.getSuperclassOrNull())) {
-                        inst.add(classObject);
-                        classObject.setInstancesAreClasses();
+                    final ClassObject instanceClassObject = classInstance.asClassObject();
+                    assert instanceClassObject != null;
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
+                    instanceClassObject.fillin(classInstance);
+                    if (inst.contains(instanceClassObject.getSuperclassOrNull())) {
+                        inst.add(instanceClassObject);
+                        instanceClassObject.setInstancesAreClasses();
+                    }
+                    final String name = instanceClassObject.getClassName();
+                    switch (name) {
+                        case "BlockClosure" -> {
+                            if (image.getBlockClosureClass() == null) {
+                                image.initializeBlockClosureClass();
+                                image.getBlockClosureClass().fillin(classInstance);
+                            }
+                        }
+                        case "CompiledMethod" -> image.compiledMethodClass.fillin(classInstance);
+                        case "Process" -> {
+                            if (image.getProcessClass() == null) {
+                                image.initializeProcessClass();
+                                image.getProcessClass().fillin(classInstance);
+                            }
+                        }
+                        case "CleanBlockClosure" -> image.setIsPharo();
                     }
                 }
             }

@@ -166,7 +166,7 @@ public abstract class LookupClassGuard {
 
         @Override
         protected ClassObject getSqueakClassInternal(final Node node) {
-            return SqueakImageContext.get(node).blockClosureClass;
+            return SqueakImageContext.get(node).getBlockClosureClass();
         }
     }
 

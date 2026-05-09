@@ -100,7 +100,7 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
 
     @Override
     public ClassObject getSqueakClass(final SqueakImageContext image) {
-        return isABlockClosure() ? image.blockClosureClass : image.getFullBlockClosureClass();
+        return isABlockClosure() ? image.getBlockClosureClass() : image.getFullBlockClosureClass();
     }
 
     public AbstractSqueakObject getOuterContext() {
