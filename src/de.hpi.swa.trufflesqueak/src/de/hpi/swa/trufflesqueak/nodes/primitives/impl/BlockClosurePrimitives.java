@@ -244,7 +244,7 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
     @GenerateNodeFactory
     @SqueakPrimitive(indices = {207, 209})
     public abstract static class PrimFullClosureValue0Node extends AbstractClosurePrimitiveNode implements Primitive0WithFallback {
-        @Specialization(guards = {"closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 0"}, assumptions = {
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 0"}, assumptions = {
                         "cachedBlock.getCallTargetStable()"}, limit = "INLINE_BLOCK_CACHE_LIMIT")
         protected final Object doValue0Direct(final VirtualFrame frame, final BlockClosureObject closure,
                         @SuppressWarnings("unused") @Cached("closure.getCompiledBlock()") final CompiledCodeObject cachedBlock,
@@ -253,18 +253,23 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
         }
 
         @ReportPolymorphism.Megamorphic
-        @Specialization(guards = {"block.getNumArgs() == 0"}, replaces = "doValue0Direct")
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "block.getNumArgs() == 0"}, replaces = "doValue0Direct")
         protected final Object doValue0Indirect(final VirtualFrame frame, final BlockClosureObject closure,
                         @Bind("closure.getCompiledBlock()") final CompiledCodeObject block,
                         @Cached final IndirectCallNode indirectCallNode) {
             return indirectCallNode.call(block.getCallTarget(), createFrameArguments(frame, closure));
+        }
+
+        @Specialization(guards = "closure.isAConstantBlockClosure()")
+        protected static final Object doValue0Constant(@SuppressWarnings("unused") final VirtualFrame frame, final BlockClosureObject closure) {
+            return closure.getReceiver();
         }
     }
 
     @GenerateNodeFactory
     @SqueakPrimitive(indices = {207, 209})
     public abstract static class PrimFullClosureValue1Node extends AbstractClosurePrimitiveNode implements Primitive1WithFallback {
-        @Specialization(guards = {"closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 1"}, assumptions = {
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 1"}, assumptions = {
                         "cachedBlock.getCallTargetStable()"}, limit = "INLINE_BLOCK_CACHE_LIMIT")
         protected final Object doValue1Direct(final VirtualFrame frame, final BlockClosureObject closure, final Object arg1,
                         @SuppressWarnings("unused") @Cached("closure.getCompiledBlock()") final CompiledCodeObject cachedBlock,
@@ -273,18 +278,25 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
         }
 
         @ReportPolymorphism.Megamorphic
-        @Specialization(guards = {"block.getNumArgs() == 1"}, replaces = "doValue1Direct")
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "block.getNumArgs() == 1"}, replaces = "doValue1Direct")
         protected final Object doValue1Indirect(final VirtualFrame frame, final BlockClosureObject closure, final Object arg1,
                         @Bind("closure.getCompiledBlock()") final CompiledCodeObject block,
                         @Cached final IndirectCallNode indirectCallNode) {
             return indirectCallNode.call(block.getCallTarget(), createFrameArguments(frame, closure, arg1));
+        }
+
+        @Specialization(guards = "closure.isAConstantBlockClosure()")
+        protected static final Object doValue0Constant(@SuppressWarnings("unused") final VirtualFrame frame,
+                        final BlockClosureObject closure,
+                        @SuppressWarnings("unused") final Object arg1) {
+            return closure.getReceiver();
         }
     }
 
     @GenerateNodeFactory
     @SqueakPrimitive(indices = {207, 209})
     public abstract static class PrimFullClosureValue2Node extends AbstractClosurePrimitiveNode implements Primitive2WithFallback {
-        @Specialization(guards = {"closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 2"}, assumptions = {
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 2"}, assumptions = {
                         "cachedBlock.getCallTargetStable()"}, limit = "INLINE_BLOCK_CACHE_LIMIT")
         protected final Object doValue2Direct(final VirtualFrame frame, final BlockClosureObject closure, final Object arg1, final Object arg2,
                         @SuppressWarnings("unused") @Cached("closure.getCompiledBlock()") final CompiledCodeObject cachedBlock,
@@ -293,18 +305,26 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
         }
 
         @ReportPolymorphism.Megamorphic
-        @Specialization(guards = {"block.getNumArgs() == 2"}, replaces = "doValue2Direct")
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "block.getNumArgs() == 2"}, replaces = "doValue2Direct")
         protected final Object doValue2Indirect(final VirtualFrame frame, final BlockClosureObject closure, final Object arg1, final Object arg2,
                         @Bind("closure.getCompiledBlock()") final CompiledCodeObject block,
                         @Cached final IndirectCallNode indirectCallNode) {
             return indirectCallNode.call(block.getCallTarget(), createFrameArguments(frame, closure, arg1, arg2));
+        }
+
+        @Specialization(guards = "closure.isAConstantBlockClosure()")
+        protected static final Object doValue0Constant(@SuppressWarnings("unused") final VirtualFrame frame,
+                        final BlockClosureObject closure,
+                        @SuppressWarnings("unused") final Object arg1,
+                        @SuppressWarnings("unused") final Object arg2) {
+            return closure.getReceiver();
         }
     }
 
     @GenerateNodeFactory
     @SqueakPrimitive(indices = {207, 209})
     public abstract static class PrimFullClosureValue3Node extends AbstractClosurePrimitiveNode implements Primitive3WithFallback {
-        @Specialization(guards = {"closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 3"}, assumptions = {
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "closure.getCompiledBlock() == cachedBlock", "cachedBlock.getNumArgs() == 3"}, assumptions = {
                         "cachedBlock.getCallTargetStable()"}, limit = "INLINE_BLOCK_CACHE_LIMIT")
         protected final Object doValue3Direct(final VirtualFrame frame, final BlockClosureObject closure, final Object arg1, final Object arg2, final Object arg3,
                         @SuppressWarnings("unused") @Cached("closure.getCompiledBlock()") final CompiledCodeObject cachedBlock,
@@ -313,11 +333,20 @@ public final class BlockClosurePrimitives extends AbstractPrimitiveFactoryHolder
         }
 
         @ReportPolymorphism.Megamorphic
-        @Specialization(guards = {"block.getNumArgs() == 3"}, replaces = "doValue3Direct")
+        @Specialization(guards = {"!closure.isAConstantBlockClosure()", "block.getNumArgs() == 3"}, replaces = "doValue3Direct")
         protected final Object doValue3Indirect(final VirtualFrame frame, final BlockClosureObject closure, final Object arg1, final Object arg2, final Object arg3,
                         @Bind("closure.getCompiledBlock()") final CompiledCodeObject block,
                         @Cached final IndirectCallNode indirectCallNode) {
             return indirectCallNode.call(block.getCallTarget(), createFrameArguments(frame, closure, arg1, arg2, arg3));
+        }
+
+        @Specialization(guards = "closure.isAConstantBlockClosure()")
+        protected static final Object doValue0Constant(@SuppressWarnings("unused") final VirtualFrame frame,
+                        final BlockClosureObject closure,
+                        @SuppressWarnings("unused") final Object arg1,
+                        @SuppressWarnings("unused") final Object arg2,
+                        @SuppressWarnings("unused") final Object arg3) {
+            return closure.getReceiver();
         }
     }
 

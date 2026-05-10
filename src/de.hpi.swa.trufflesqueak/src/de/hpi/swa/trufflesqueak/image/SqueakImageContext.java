@@ -121,6 +121,8 @@ public final class SqueakImageContext {
     public final NativeObject cannotInterpretSelector = new NativeObject(); // TODO: use selector
     @CompilationFinal private ClassObject blockClosureClass;
     @CompilationFinal private ClassObject fullBlockClosureClass;
+    @CompilationFinal private ClassObject cleanBlockClosureClass;
+    @CompilationFinal private ClassObject constantBlockClosureClass;
     public final ClassObject largeNegativeIntegerClass = new ClassObject(this);
     @CompilationFinal private ClassObject externalAddressClass;
     @CompilationFinal private ClassObject externalStructureClass;
@@ -781,6 +783,34 @@ public final class SqueakImageContext {
     public ClassObject initializeFullBlockClosureClass() {
         assert fullBlockClosureClass == null;
         return fullBlockClosureClass = new ClassObject(this);
+    }
+
+    public boolean isCleanBlockClosureClassUninitialized() {
+        return cleanBlockClosureClass == null;
+    }
+
+    public ClassObject getCleanBlockClosureClass() {
+        assert cleanBlockClosureClass != null;
+        return cleanBlockClosureClass;
+    }
+
+    public ClassObject initializeCleanBlockClosureClass() {
+        assert cleanBlockClosureClass == null;
+        return cleanBlockClosureClass = new ClassObject(this);
+    }
+
+    public boolean isConstantBlockClosureClassUninitialized() {
+        return constantBlockClosureClass == null;
+    }
+
+    public ClassObject getConstantBlockClosureClass() {
+        assert constantBlockClosureClass != null;
+        return constantBlockClosureClass;
+    }
+
+    public ClassObject initializeConstantBlockClosureClass() {
+        assert constantBlockClosureClass == null;
+        return constantBlockClosureClass = new ClassObject(this);
     }
 
     public boolean isProcessClassUninitialized() {

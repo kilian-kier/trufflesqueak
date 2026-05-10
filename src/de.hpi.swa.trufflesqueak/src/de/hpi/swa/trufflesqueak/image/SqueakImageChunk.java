@@ -263,6 +263,14 @@ public final class SqueakImageChunk {
         object = getImage().getFullBlockClosureClass();
     }
 
+    public void becomeCleanBlockClosureClass() {
+        object = getImage().getCleanBlockClosureClass();
+    }
+
+    public void becomeConstantBlockClosureClass() {
+        object = getImage().getConstantBlockClosureClass();
+    }
+
     public void becomeBlockClosureClass() {
         object = getImage().getBlockClosureClass();
     }

@@ -97,10 +97,6 @@ public final class ContextObject extends AbstractSqueakObjectWithHash {
             closure = null;
             methodOrBlock = code;
             numArgs = code.getNumArgs();
-        } else if (chunk.getImage().isPharo() && ((AbstractSqueakObjectWithHash) closureOrNil).getSqueakClass().isFullBlockClosureClass()) {
-            closure = null;
-            methodOrBlock = code;
-            numArgs = code.getNumArgs();
         } else {
             closure = (BlockClosureObject) closureOrNil;
             numArgs = closure.getNumArgs() + closure.getNumCopied();

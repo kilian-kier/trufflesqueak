@@ -419,49 +419,7 @@ public final class SqueakImageReader {
                         inst.add(instanceClassObject);
                         instanceClassObject.setInstancesAreClasses();
                     }
-                    final String name = instanceClassObject.getClassName();
-                    switch (name) {
-                        case "FullBlockClosure" -> {
-                            if (image.isFullBlockClosureClassUninitialized()) {
-                                image.initializeFullBlockClosureClass();
-                                image.getFullBlockClosureClass().setSqueakClass(classObject);
-                                image.getFullBlockClosureClass().fillin(classInstance);
-                                classInstance.becomeFullBlockClosureClass();
-                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getFullBlockClosureClass());
-                            }
-                        }
-                        case "BlockClosure" -> {
-                            if (image.isBlockClosureClassUninitialized()) {
-                                image.initializeBlockClosureClass();
-                                image.getBlockClosureClass().setSqueakClass(classObject);
-                                image.getBlockClosureClass().fillin(classInstance);
-                                classInstance.becomeBlockClosureClass();
-                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getBlockClosureClass());
-                            }
-                        }
-                        case "CompiledMethod" -> {
-                            if (image.compiledMethodClass.needsSqueakClass() || image.compiledMethodClass.needsSqueakHash()) {
-                                image.compiledMethodClass.setSqueakClass(classObject);
-                                image.compiledMethodClass.fillin(classInstance);
-                                classInstance.becomeCompiledMethodClass();
-                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.compiledMethodClass);
-                            }
-                        }
-                        case "Process" -> {
-                            if (image.isProcessClassUninitialized()) {
-                                image.initializeProcessClass();
-                                image.getProcessClass().setSqueakClass(classObject);
-                                image.getProcessClass().fillin(classInstance);
-                                classInstance.becomeProcessClass();
-                                classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getProcessClass());
-                            }
-                        }
-                        case "PharoSyntaxTutorial" -> {
-                            image.setIsPharo();
-                            classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
-                        }
-                        default -> classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
-                    }
+                    setUninitializedSpecialClasses(instanceClassObject, classObject, classInstance);
                 }
             }
         }
@@ -471,6 +429,65 @@ public final class SqueakImageReader {
         /* Finally, ensure instances of Behavior are {@link ClassObject}s. */
         final ClassObject behaviorClass = classDescriptionClass.getSuperclassOrNull();
         behaviorClass.setInstancesAreClasses();
+    }
+
+    private void setUninitializedSpecialClasses(final ClassObject instanceClassObject, final ClassObject classObject, final SqueakImageChunk classInstance) {
+        final String name = instanceClassObject.getClassName();
+        switch (name) {
+            case "BlockClosure" -> {
+                if (image.isBlockClosureClassUninitialized()) {
+                    image.initializeBlockClosureClass().setSqueakClass(classObject);
+                    image.getBlockClosureClass().fillin(classInstance);
+                    classInstance.becomeBlockClosureClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getBlockClosureClass());
+                }
+            }
+            case "FullBlockClosure" -> {
+                if (image.isFullBlockClosureClassUninitialized()) {
+                    image.initializeFullBlockClosureClass().setSqueakClass(classObject);
+                    image.getFullBlockClosureClass().fillin(classInstance);
+                    classInstance.becomeFullBlockClosureClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getFullBlockClosureClass());
+                }
+            }
+            case "CleanBlockClosure" -> {
+                if (image.isCleanBlockClosureClassUninitialized()) {
+                    image.initializeCleanBlockClosureClass().setSqueakClass(classObject);
+                    image.getCleanBlockClosureClass().fillin(classInstance);
+                    classInstance.becomeCleanBlockClosureClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getCleanBlockClosureClass());
+                }
+            }
+            case "ConstantBlockClosure" -> {
+                if (image.isConstantBlockClosureClassUninitialized()) {
+                    image.initializeConstantBlockClosureClass().setSqueakClass(classObject);
+                    image.getConstantBlockClosureClass().fillin(classInstance);
+                    classInstance.becomeConstantBlockClosureClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getConstantBlockClosureClass());
+                }
+            }
+            case "CompiledMethod" -> {
+                if (image.compiledMethodClass.needsSqueakClass() || image.compiledMethodClass.needsSqueakHash()) {
+                    image.compiledMethodClass.setSqueakClass(classObject);
+                    image.compiledMethodClass.fillin(classInstance);
+                    classInstance.becomeCompiledMethodClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.compiledMethodClass);
+                }
+            }
+            case "Process" -> {
+                if (image.isProcessClassUninitialized()) {
+                    image.initializeProcessClass().setSqueakClass(classObject);
+                    image.getProcessClass().fillin(classInstance);
+                    classInstance.becomeProcessClass();
+                    classObject.setOtherPointer(METACLASS.THIS_CLASS, image.getProcessClass());
+                }
+            }
+            case "PharoSyntaxTutorial" -> {
+                image.setIsPharo();
+                classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
+            }
+            default -> classObject.setOtherPointer(METACLASS.THIS_CLASS, instanceClassObject);
+        }
     }
 
     private void fillInObjects() {

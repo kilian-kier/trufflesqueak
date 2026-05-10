@@ -30,7 +30,7 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
     public BlockClosureObject(final SqueakImageChunk chunk) {
         super(chunk);
         assert chunk.getWordSize() >= BLOCK_CLOSURE.FIRST_COPIED_VALUE;
-        if (chunk.getSqueakClass().isBlockClosureClass()) {
+        if (chunk.getSqueakClass().isBlockClosureClass() || isACleanBlockClosure(chunk.getSqueakClass())) {
             setIsABlockClosure();
         }
         outerContext = (ContextObject) chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
@@ -218,6 +218,34 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
 
     public boolean isAFullBlockClosure() {
         return !isABlockClosure();
+    }
+
+    public boolean isACleanBlockClosure(final ClassObject classObject) {
+        if (!classObject.getImage().isPharo()) {
+            return false;
+        }
+        ClassObject object = classObject;
+        while (object != null) {
+            if (object.isCleanBlockClosureClass()) {
+                return true;
+            }
+            object = object.getSuperclassOrNull();
+        }
+        return false;
+    }
+
+    public boolean isAConstantBlockClosure() {
+        ClassObject classObject = getSqueakClass();
+        if (!classObject.getImage().isPharo()) {
+            return false;
+        }
+        while (classObject != null) {
+            if (classObject.isConstantBlockClosureClass()) {
+                return true;
+            }
+            classObject = classObject.getSuperclassOrNull();
+        }
+        return false;
     }
 
     @Override
