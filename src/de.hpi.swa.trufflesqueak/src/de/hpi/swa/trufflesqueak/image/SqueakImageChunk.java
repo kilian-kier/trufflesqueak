@@ -93,7 +93,7 @@ public final class SqueakImageChunk {
         } else if (format == 3) { // fixed and indexable fields
             if (classObject == image.methodContextClass) {
                 return new ContextObject(this);
-            } else if (image.isBlockClosureClass(classObject) || image.isFullBlockClosureClass(classObject)) {
+            } else if (image.isAnyBlockClosureClass(classObject)) {
                 return new BlockClosureObject(this);
             } else {
                 return new VariablePointersObject(this);

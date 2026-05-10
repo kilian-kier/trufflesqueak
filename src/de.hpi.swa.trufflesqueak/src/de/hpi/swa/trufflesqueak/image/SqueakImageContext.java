@@ -1194,6 +1194,24 @@ public final class SqueakImageContext {
         return object == fullBlockClosureClass; /* may be null */
     }
 
+    public boolean isAnyBlockClosureClass(final ClassObject object) {
+        if (blockClosureClass == null) {
+            // it might happen in the early loading process, that the blockClosureClass is not even registered
+            return false;
+        }
+        if (object == blockClosureClass || object == fullBlockClosureClass || object == cleanBlockClosureClass || object == constantBlockClosureClass) {
+            return true;
+        }
+        ClassObject classObject = object;
+        while (classObject != null) {
+            classObject = classObject.getSuperclassOrNull();
+            if (classObject == blockClosureClass) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public boolean isLargeIntegerClass(final ClassObject object) {
         return object == largePositiveIntegerClass || object == largeNegativeIntegerClass;
     }

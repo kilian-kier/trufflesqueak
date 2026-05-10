@@ -33,7 +33,8 @@ public final class BlockClosureObject extends AbstractSqueakObjectWithHash {
         if (chunk.getSqueakClass().isBlockClosureClass() || isACleanBlockClosure(chunk.getSqueakClass())) {
             setIsABlockClosure();
         }
-        outerContext = (ContextObject) chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
+        final Object outerContextOrNil = chunk.getPointer(BLOCK_CLOSURE.OUTER_CONTEXT);
+        outerContext = outerContextOrNil instanceof final ContextObject c ? c : null;
         final Object startPCOrMethod = chunk.getPointer(BLOCK_CLOSURE.START_PC_OR_METHOD);
         numArgs = (int) (long) chunk.getPointer(BLOCK_CLOSURE.ARGUMENT_COUNT);
         if (startPCOrMethod instanceof final CompiledCodeObject code) {
