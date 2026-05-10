@@ -556,6 +556,26 @@ public final class StoragePrimitives extends AbstractPrimitiveFactoryHolder {
     }
 
     @GenerateNodeFactory
+    @SqueakPrimitive(indices = 183)
+    protected abstract static class PrimIsPinnedInMemoryNode extends AbstractPrimitiveNode implements Primitive0 {
+        @Specialization
+        protected static final boolean isPinned(@SuppressWarnings("unused") final Object receiver) {
+            /* Since objects are managed by the JVM GC and never move in the Smalltalk heap sense, an object can be considered as always pinned*/
+            return BooleanObject.TRUE;
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(indices = 184)
+    protected abstract static class PrimSetPinnedInMemoryNode extends AbstractPrimitiveNode implements Primitive1 {
+        @Specialization
+        protected static final boolean pinned(@SuppressWarnings("unused") final Object receiver, @SuppressWarnings("unused") final boolean pinned) {
+            /* Since all objects are pinned, it was also previously pinned, thus always return true */
+            return BooleanObject.TRUE;
+        }
+    }
+
+    @GenerateNodeFactory
     @SqueakPrimitive(indices = 248)
     protected abstract static class PrimArrayBecomeOneWayNoCopyHashNode extends AbstractArrayBecomeOneWayPrimitiveNode implements Primitive1WithFallback {
 
