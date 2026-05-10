@@ -60,6 +60,7 @@ import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive4WithFallbac
 import de.hpi.swa.trufflesqueak.nodes.primitives.SqueakPrimitive;
 import de.hpi.swa.trufflesqueak.nodes.primitives.impl.MiscellaneousPrimitives.AbstractPrimCalloutToFFINode;
 import de.hpi.swa.trufflesqueak.util.LogUtils;
+import de.hpi.swa.trufflesqueak.util.UnsafeUtils;
 import de.hpi.swa.trufflesqueak.util.VarHandleUtils;
 
 public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
@@ -341,6 +342,30 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
             return NativeObject.newNativeBytes(externalAddressClass,
                             new byte[]{(byte) pointer, (byte) (pointer >> 8), (byte) (pointer >> 16), (byte) (pointer >> 24), (byte) (pointer >> 32), (byte) (pointer >> 40),
                                             (byte) (pointer >> 48), (byte) (pointer >> 56)});
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveGetAddressOfOOP")
+    protected abstract static class PrimGetAddressOfOOPNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
+        @Specialization(guards = "arg.isByteType()")
+        protected static final long doNativeBytes(@SuppressWarnings("unused") final Object receiver, final NativeObject arg) {
+            return UnsafeUtils.allocateNativeBytes(arg.getByteStorage());
+        }
+
+        @Specialization(guards = "arg.isIntType()")
+        protected static final long doNativeInts(@SuppressWarnings("unused") final Object receiver, final NativeObject arg) {
+            return UnsafeUtils.allocateNativeInts(arg.getIntStorage());
+        }
+
+        @Specialization(guards = "arg.isShortType()")
+        protected static final long doNativeShorts(@SuppressWarnings("unused") final Object receiver, final NativeObject arg) {
+            return UnsafeUtils.allocateNativeShorts(arg.getShortStorage());
+        }
+
+        @Specialization(guards = "arg.isLongType()")
+        protected static final long doNativeLongs(@SuppressWarnings("unused") final Object receiver, final NativeObject arg) {
+            return UnsafeUtils.allocateNativeLongs(arg.getLongStorage());
         }
     }
 
