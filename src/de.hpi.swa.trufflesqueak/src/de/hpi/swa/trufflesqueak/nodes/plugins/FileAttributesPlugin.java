@@ -8,6 +8,7 @@
 package de.hpi.swa.trufflesqueak.nodes.plugins;
 
 import com.oracle.truffle.api.CompilerDirectives.CompilationFinal;
+import com.oracle.truffle.api.CompilerDirectives.TruffleBoundary;
 import com.oracle.truffle.api.TruffleFile;
 import com.oracle.truffle.api.dsl.Bind;
 import com.oracle.truffle.api.dsl.GenerateNodeFactory;
@@ -18,6 +19,7 @@ import de.hpi.swa.trufflesqueak.image.SqueakImageContext;
 import de.hpi.swa.trufflesqueak.model.BooleanObject;
 import de.hpi.swa.trufflesqueak.model.NativeObject;
 import de.hpi.swa.trufflesqueak.model.NilObject;
+import de.hpi.swa.trufflesqueak.model.PointersObject;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveFactoryHolder;
 import de.hpi.swa.trufflesqueak.nodes.primitives.AbstractPrimitiveNode;
 import de.hpi.swa.trufflesqueak.nodes.primitives.Primitive.Primitive0;
@@ -27,9 +29,12 @@ import de.hpi.swa.trufflesqueak.nodes.primitives.SqueakPrimitive;
 import de.hpi.swa.trufflesqueak.util.OS;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.LinkOption;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -212,6 +217,107 @@ public final class FileAttributesPlugin extends AbstractPrimitiveFactoryHolder {
             }
 
             return mode;
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveOpendir")
+    protected abstract static class PrimOpendirNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
+        @Specialization(guards = "path.isByteType()")
+        @TruffleBoundary
+        protected static final Object doOpen(@SuppressWarnings("unused") final Object receiver, final NativeObject path,
+                        @Bind final SqueakImageContext image) {
+            final String pathStr = path.asStringUnsafe();
+            final TruffleFile file = image.env.getPublicTruffleFile(pathStr);
+            if (!file.isDirectory()) {
+                throw PrimitiveFailed.andTransferToInterpreter();
+            }
+            try {
+                final List<TruffleFile> entries = new ArrayList<>();
+                try (DirectoryStream<TruffleFile> stream = file.newDirectoryStream()) {
+                    for (final TruffleFile entry : stream) {
+                        entries.add(entry);
+                    }
+                }
+                final Iterator<TruffleFile> iterator = entries.iterator();
+                final PointersObject handle = PointersObject.newHandleWithHiddenObject(image, iterator);
+                if (iterator.hasNext()) {
+                    final Object[] entryData = makeEntryData(image, iterator.next());
+                    return image.asArrayOfObjects(entryData[0], entryData[1], handle);
+                }
+                return handle;
+            } catch (final IOException | SecurityException e) {
+                throw PrimitiveFailed.andTransferToInterpreter();
+            }
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveReaddir")
+    protected abstract static class PrimReaddirNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
+        @Specialization
+        @TruffleBoundary
+        protected static final Object doRead(@SuppressWarnings("unused") final Object receiver, final PointersObject handle,
+                        @Bind final SqueakImageContext image) {
+            final Object hidden = handle.getHiddenObject();
+            if (!(hidden instanceof Iterator)) {
+                throw PrimitiveFailed.andTransferToInterpreter();
+            }
+            @SuppressWarnings("unchecked")
+            final Iterator<TruffleFile> iterator = (Iterator<TruffleFile>) hidden;
+            if (!iterator.hasNext()) {
+                return NilObject.SINGLETON;
+            }
+            final Object[] entryData = makeEntryData(image, iterator.next());
+            return image.asArrayOfObjects(entryData);
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveClosedir")
+    protected abstract static class PrimClosedirNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
+        @Specialization
+        protected static final Object doClose(@SuppressWarnings("unused") final Object receiver, final PointersObject handle) {
+            return handle;
+        }
+    }
+
+    private static Object[] makeEntryData(final SqueakImageContext image, final TruffleFile file) {
+        final String name = file.getName();
+        final Object nameObj = image.asByteString(name != null ? name : "");
+        final Object[] attrs = new Object[12];
+        Arrays.fill(attrs, NilObject.SINGLETON);
+        attrs[1] = getFileMode(file);
+        attrs[7] = safeFileSize(file);
+        return new Object[]{nameObj, image.asArrayOfObjects(attrs)};
+    }
+
+    private static long getFileMode(final TruffleFile file) {
+        long mode = 0;
+        if (file.isSymbolicLink()) {
+            mode |= 0120000L;
+        } else if (file.isDirectory(LinkOption.NOFOLLOW_LINKS)) {
+            mode |= 0040000L;
+        } else if (file.isRegularFile(LinkOption.NOFOLLOW_LINKS)) {
+            mode |= 0100000L;
+        }
+        if (file.isReadable()) {
+            mode |= 0444L;
+        }
+        if (file.isWritable()) {
+            mode |= 0222L;
+        }
+        if (file.isExecutable()) {
+            mode |= 0111L;
+        }
+        return mode;
+    }
+
+    private static long safeFileSize(final TruffleFile file) {
+        try {
+            return file.size();
+        } catch (final IOException | SecurityException e) {
+            return 0L;
         }
     }
 

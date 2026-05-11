@@ -154,7 +154,9 @@ public final class PrimitiveNodeFactory {
     }
 
     public static AbstractPrimitiveNode getOrCreateIndexed(final int primitiveIndex, final int numReceiverAndArguments) {
-        assert primitiveIndex <= MAX_PRIMITIVE_INDEX;
+        if (primitiveIndex > MAX_PRIMITIVE_INDEX) {
+            return null;
+        }
         if (isLoadInstVar(primitiveIndex)) {
             assert numReceiverAndArguments == 1;
             return ControlPrimitives.PrimLoadInstVarNode.create(primitiveIndex - PRIMITIVE_LOAD_INST_VAR_LOWER_INDEX);

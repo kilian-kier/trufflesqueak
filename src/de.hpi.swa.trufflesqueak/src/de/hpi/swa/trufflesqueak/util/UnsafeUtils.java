@@ -88,6 +88,10 @@ public final class UnsafeUtils {
         return address;
     }
 
+    public static void copyNativeBytesBack(final long address, final byte[] dest) {
+        UNSAFE.copyMemory(null, address, dest, Unsafe.ARRAY_BYTE_BASE_OFFSET, (long) dest.length * Byte.BYTES);
+    }
+
     public static void copyNativeBytesBackAndFree(final long address, final byte[] dest) {
         copyNativeBackAndFree(address, dest, Unsafe.ARRAY_BYTE_BASE_OFFSET, (long) dest.length * Byte.BYTES);
     }
@@ -159,6 +163,22 @@ public final class UnsafeUtils {
         }
         assert false : "Failed to find null terminator";
         return ArrayUtils.EMPTY_BYTE_ARRAY;
+    }
+
+    public static byte getNativeByte(final long address) {
+        return UNSAFE.getByte(address);
+    }
+
+    public static short getNativeShort(final long address) {
+        return UNSAFE.getShort(address);
+    }
+
+    public static int getNativeInt(final long address) {
+        return UNSAFE.getInt(address);
+    }
+
+    public static long getNativeLong(final long address) {
+        return UNSAFE.getLong(address);
     }
 
     public static char getChar(final char[] storage, final long index) {

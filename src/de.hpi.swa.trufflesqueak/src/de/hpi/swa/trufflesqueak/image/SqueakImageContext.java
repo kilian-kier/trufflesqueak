@@ -215,6 +215,7 @@ public final class SqueakImageContext {
     @CompilationFinal private InterpreterProxy interpreterProxy;
     public final Map<String, Object> loadedLibraries = new HashMap<>();
     public final Map<Long, Object> nfiSymbols = new HashMap<>();
+    public final Map<Long, byte[]> nativeMemoryMap = new HashMap<>();
     public final B2D b2d = new B2D(this);
     public final BitBlt bitblt = new BitBlt(this);
     public String[] dropPluginFileList = ArrayUtils.EMPTY_STRINGS_ARRAY;

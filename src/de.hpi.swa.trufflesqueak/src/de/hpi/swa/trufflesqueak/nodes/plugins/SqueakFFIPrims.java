@@ -364,8 +364,11 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
     @SqueakPrimitive(names = "primitiveGetAddressOfOOP")
     protected abstract static class PrimGetAddressOfOOPNode extends AbstractPrimitiveNode implements Primitive1WithFallback {
         @Specialization(guards = "arg.isByteType()")
-        protected static final long doNativeBytes(@SuppressWarnings("unused") final Object receiver, final NativeObject arg) {
-            return UnsafeUtils.allocateNativeBytes(arg.getByteStorage());
+        protected static final long doNativeBytes(@SuppressWarnings("unused") final Object receiver, final NativeObject arg,
+                        @Bind final SqueakImageContext image) {
+            final long address = UnsafeUtils.allocateNativeBytes(arg.getByteStorage());
+            image.nativeMemoryMap.put(address, arg.getByteStorage());
+            return address;
         }
 
         @Specialization(guards = "arg.isIntType()")
@@ -474,6 +477,45 @@ public final class SqueakFFIPrims extends AbstractPrimitiveFactoryHolder {
                         @Bind final Node node,
                         @Cached final InlinedConditionProfile positiveProfile) {
             return PrimUnsignedInt64AtNode.unsignedInt64At(image, byteArray, byteOffsetLong, positiveProfile, node);
+        }
+    }
+
+    @GenerateNodeFactory
+    @SqueakPrimitive(names = "primitiveFFIIntegerAt")
+    protected abstract static class PrimFFIIntegerAt5Node extends AbstractPrimitiveNode implements Primitive4WithFallback {
+        @Specialization(guards = {"byteArray.isByteType()", "byteOffsetLong > 0"})
+        protected static final long doAt(@SuppressWarnings("unused") final Object receiver, final NativeObject byteArray, final long byteOffsetLong,
+                        final long byteSize, final boolean isSigned) {
+            final byte[] bytes = byteArray.getByteStorage();
+            if (bytes.length == 8) {
+                final long baseAddress = VarHandleUtils.getLongFromBytes(bytes, 0);
+                if (baseAddress != 0) {
+                    final long address = baseAddress + byteOffsetLong - 1;
+                    return readFromNativeMemory(address, (int) byteSize, isSigned);
+                }
+            }
+            return readFromByteArray(byteArray, byteOffsetLong, (int) byteSize, isSigned);
+        }
+
+        private static long readFromNativeMemory(final long address, final int byteSize, final boolean isSigned) {
+            return switch (byteSize) {
+                case 1 -> isSigned ? UnsafeUtils.getNativeByte(address) : Byte.toUnsignedLong(UnsafeUtils.getNativeByte(address));
+                case 2 -> isSigned ? UnsafeUtils.getNativeShort(address) : Short.toUnsignedLong(UnsafeUtils.getNativeShort(address));
+                case 4 -> isSigned ? UnsafeUtils.getNativeInt(address) : Integer.toUnsignedLong(UnsafeUtils.getNativeInt(address));
+                case 8 -> UnsafeUtils.getNativeLong(address);
+                default -> 0L;
+            };
+        }
+
+        private static long readFromByteArray(final NativeObject byteArray, final long byteOffsetLong, final int byteSize, final boolean isSigned) {
+            return switch (byteSize) {
+                case 1 -> isSigned ? byteArray.getByte(byteOffsetLong - 1) : byteArray.getByteUnsigned(byteOffsetLong - 1);
+                case 2 -> isSigned ? (long) PrimSignedInt16AtNode.signedInt16At(byteArray, byteOffsetLong) : (long) PrimUnsignedInt16AtNode.doAt(byteArray, byteOffsetLong);
+                case 4 -> isSigned ? (long) VarHandleUtils.getIntFromBytes(byteArray.getByteStorage(), (int) (byteOffsetLong - 1))
+                                : Integer.toUnsignedLong(VarHandleUtils.getIntFromBytes(byteArray.getByteStorage(), (int) (byteOffsetLong - 1)));
+                case 8 -> VarHandleUtils.getLongFromBytes(byteArray.getByteStorage(), (int) (byteOffsetLong - 1));
+                default -> 0L;
+            };
         }
     }
 

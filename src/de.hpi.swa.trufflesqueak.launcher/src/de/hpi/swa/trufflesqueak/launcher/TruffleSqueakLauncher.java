@@ -68,7 +68,12 @@ public final class TruffleSqueakLauncher extends AbstractLanguageLauncher {
             final String arg = arguments.get(i);
             if (isExistingImageFile(arg)) {
                 imagePath = Paths.get(arg).toAbsolutePath().toString();
-                imageArguments = getRemainingArguments(arguments, i);
+                final String[] remaining = getRemainingArguments(arguments, i);
+                if (remaining.length > 0 && "--".equals(remaining[0])) {
+                    imageArguments = java.util.Arrays.copyOfRange(remaining, 1, remaining.length);
+                } else {
+                    imageArguments = remaining;
+                }
                 break;
             } else if ("--".equals(arg)) {
                 imageArguments = getRemainingArguments(arguments, i);

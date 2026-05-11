@@ -34,6 +34,8 @@ import de.hpi.swa.trufflesqueak.util.VarHandleUtils;
 
 public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
 
+    private static final boolean IS_WINDOWS = System.getProperty("os.name", "").toLowerCase().contains("win");
+    private static final int LONG_SIZE = IS_WINDOWS ? 4 : 8;
     private static final int[] BASIC_TYPE_SIZES = {
                     0, // 0: unused
                     0, // 1: void
@@ -54,8 +56,8 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
                     2, // 16: sshort
                     4, // 17: uint
                     4, // 18: sint
-                    8, // 19: ulong (64-bit)
-                    8, // 20: slong (64-bit)
+                    LONG_SIZE, // 19: ulong (platform-dependent)
+                    LONG_SIZE, // 20: slong (platform-dependent)
     };
 
     @Override
@@ -118,6 +120,8 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
     @GenerateNodeFactory
     @SqueakPrimitive(names = "primitiveSameThreadCallout")
     protected abstract static class PrimSameThreadCalloutNode extends AbstractPrimitiveNode implements Primitive2WithFallback {
+        private static final String ULONG_TYPE = IS_WINDOWS ? "UINT32" : "UINT64";
+        private static final String SLONG_TYPE = IS_WINDOWS ? "SINT32" : "SINT64";
         private static final String[] NFI_TYPE_NAMES = {
                         "VOID",     // 0: unused
                         "VOID",     // 1: void
@@ -138,8 +142,8 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
                         "SINT16",   // 16: sshort
                         "UINT32",   // 17: uint
                         "SINT32",   // 18: sint
-                        "UINT64",   // 19: ulong (64-bit)
-                        "SINT64",   // 20: slong (64-bit)
+                        ULONG_TYPE, // 19: ulong (platform-dependent)
+                        SLONG_TYPE, // 20: slong (platform-dependent)
         };
 
         @Specialization
@@ -205,6 +209,7 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
                                 Source.newBuilder("nfi", sig, "native").build()).call();
                 final Object boundFunction = interop.invokeMember(signature, "bind", nfiSymbol);
                 final Object result = interop.execute(boundFunction, convertedArgs);
+                copyBackNativeMemory(image, convertedArgs);
                 return convertResult(result, returnTypeCode);
             } catch (final PrimitiveFailed pf) {
                 throw pf;
@@ -285,6 +290,17 @@ public final class ThreadedFFIPlugin extends AbstractPrimitiveFactoryHolder {
                 // fall through
             }
             return 0L;
+        }
+
+        private static void copyBackNativeMemory(final SqueakImageContext image, final Object[] convertedArgs) {
+            for (final Object arg : convertedArgs) {
+                if (arg instanceof final Long ptr && ptr != 0L) {
+                    final byte[] dest = image.nativeMemoryMap.get(ptr);
+                    if (dest != null) {
+                        UnsafeUtils.copyNativeBytesBack(ptr, dest);
+                    }
+                }
+            }
         }
     }
 }
