@@ -94,7 +94,7 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
         }
 
         protected static final boolean inBounds(final long startIndex, final long count, final int slotSize) {
-            return startIndex >= 1 && startIndex + count - 1 <= slotSize;
+            return startIndex >= 1 && count >= 0 && count <= slotSize - startIndex + 1;
         }
 
         protected static final boolean isStdioFileDescriptor(final PointersObject fd) {
@@ -490,9 +490,9 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
         protected static final long doReadInts(@SuppressWarnings("unused") final Object receiver, final PointersObject fd, final NativeObject target, final long startIndex, final long count) {
             final ByteBuffer dst = allocate((int) count * Integer.BYTES);
             final long readBytes = readFrom(getChannelOrPrimFail(fd), dst);
+            final long actualReadBytes = Math.max(readBytes, 0L);
             final byte[] bytes = getBytes(dst);
-            assert readBytes % Integer.BYTES == 0 && readBytes == bytes.length;
-            final long readInts = readBytes / Integer.BYTES;
+            final long readInts = actualReadBytes / Integer.BYTES;
             // TODO: could use UnsafeUtils.copyMemory here?
             for (int index = 0; index < readInts; index++) {
                 target.setInt(startIndex - 1 + index, VarHandleUtils.getInt(bytes, index));
@@ -666,12 +666,11 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
         protected static final long doWriteInt(@SuppressWarnings("unused") final Object receiver, final PointersObject fd, final NativeObject content, final long startIndex, final long count) {
             // TODO: use ByteBuffer or UnsafeUtils here?
             final int[] ints = content.getIntStorage();
-            final int intsLength = ints.length;
-            final byte[] bytes = new byte[intsLength * Integer.BYTES];
-            for (int i = 0; i < intsLength; i++) {
-                VarHandleUtils.putIntReversed(bytes, i, ints[i]);
+            final byte[] bytes = new byte[(int) count * Integer.BYTES];
+            for (int i = 0; i < count; i++) {
+                VarHandleUtils.putInt(bytes, i, ints[(int) (startIndex - 1 + i)]);
             }
-            return fileWriteFromAt(fd, count, bytes, startIndex, 4);
+            return fileWriteFromAt(fd, count, bytes, 1, 4);
         }
 
         @Specialization(guards = {"!isStdioFileDescriptor(fd)", "inBounds(startIndex, count, WORD_LENGTH)"})
@@ -705,7 +704,6 @@ public final class FilePlugin extends AbstractPrimitiveFactoryHolder {
         private static void writeToOutputStream(final OutputStream outputStream, final byte[] content, final int offset, final int length) {
             try {
                 outputStream.write(content, offset, length);
-                outputStream.flush();
             } catch (final IOException e) {
                 log("Failed to write to OutputStream", e);
                 throw PrimitiveFailed.GENERIC_ERROR;
